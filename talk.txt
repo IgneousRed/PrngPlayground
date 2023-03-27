@@ -1,0 +1,18 @@
+How do computers make random numbers?
+Computers are deterministic machines. 1 + 2 = 3.
+If they are somehow not deterministic, we deem them broken.
+Given the same state, the computer will always arive at the same result.
+If so is true, does that mean computers can't generate random numbers?
+Well, Yes, and No.
+There are 2 general categories of Random: True Random and Pseudo Random.
+True random can only be achieved by reaching outside the deterministic computer.
+Since the outside world is chaotically complex with an extremely large state that is never the same
+By using some kind of sensor to read the outside world, we can get True Randomness.
+As opposed to every other goal, we want to separate the sensor signal from the noise,
+here we want to do the opposite, we are ONLY interested in noise.
+We could measure termal noise, radio noise, radioactive decay, and so on.
+Many such methods are asymmetric and systematically biased.
+Meaning that they produce non-uniform randomness.
+Some outputs are over represented while others under represented.
+That is why it is common to do some post-processing to correct non-uniformity.
+So, if we need a truly random number

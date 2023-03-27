@@ -3,6 +3,7 @@ const lib = @import("lib.zig");
 const prng = @import("prng.zig");
 const dev = @import("prng_dev.zig");
 const bits = @import("bits.zig");
+const rand = std.rand;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
@@ -47,6 +48,7 @@ fn perm16(value: u16) u16 {
 }
 
 pub fn main() !void {
+
     // const bitSize = 2 * 5;
     // const T = bits.U(bitSize);
     // var mul: T = 5;
@@ -107,31 +109,21 @@ fn childTest() !void {
         "stdin64",
         "-tlmin",
         "10",
+        "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
     // child.stdout_behavior = .Pipe;
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    var state: u64 = 0;
+    // var r = rand.DefaultPrng.init(0);
     var buf = [1]u64{0} ** (1 << 10);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
-            defer state += 1;
-            var a = @bitReverse(state);
-
-            a *%= 0xf1357aea2e62a9c5; // 10:10
-            a ^= a >> 32;
-            a *%= 0xf1357aea2e62a9c5; // 12:12
-            a ^= a >> 32;
-            a *%= 0xf1357aea2e62a9c5; // 25:31
-            a ^= a >> 32;
-            a *%= 0xf1357aea2e62a9c5; // 00:00
-            a ^= a >> 32;
-
-            buf[i] = a;
+            // buf[i] = r.random().int(u64);
+            buf[i] = prng.entropy64();
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }

@@ -3,8 +3,7 @@ const lib = @import("lib.zig");
 const bits = @import("bits.zig");
 const dev = @import("prng_dev.zig");
 
-/// Hash64 calculates a seemingly random u64 from multiple u64s. For better quality result,
-/// mix better quality entropy first.
+/// Hash64 calculates a seemingly random u64 from multiple u64s.
 pub const Hash64 = struct {
     state: u64,
 
@@ -13,8 +12,8 @@ pub const Hash64 = struct {
         return Self{ .state = seed };
     }
 
-    /// Add entropy to the result. For better quality result, mix better quality entropy first.
-    pub fn mix(self: *Self, value: u64) void { // TODO: Chaining?
+    /// Add entropy to the result.
+    pub fn mix(self: *Self, value: u64) void {
         self.state -%= value ^ multiplier;
     }
 
@@ -35,7 +34,7 @@ pub const Hash64 = struct {
 
 pub fn entropy64() u64 {
     var hash64 = Hash64.init(entropy64State);
-    hash64.mix(@truncate(u64, @bitCast(u128, std.time.nanoTimestamp()))); // TODO: Betterify
+    hash64.mix(@truncate(u64, @bitCast(u128, std.time.nanoTimestamp())));
     entropy64State = hash64.done();
     return entropy64State;
 }
