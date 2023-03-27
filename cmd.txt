@@ -1,0 +1,16 @@
+./zig-out/bin/rng-test | /Users/gio/PractRand/RNG_test stdin64 -tlmin 16
+
+A = Mul64
+B = Mul48
+MXsr		32F		32R		64FA	64FB	64RA	64RB
+	01		14		10		14		10		10		10
+	02		18		14		25		31		12		12
+	03		28		25		00		00		31		25
+	04		30		30								00		00
+
+mt19937 fails at 2^38 bytes
+
+10:10
+12:12
+25:31
+00:00
