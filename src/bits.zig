@@ -67,9 +67,9 @@ pub fn low(comptime bits: comptime_int, int: anytype) U(bits) {
 
 /// Returns the hign bits of an int.
 pub fn highBits(comptime bits: comptime_int, int: anytype) U(bits) {
-    return @intCast(U(bits), int >> typeSize(int) - bits);
+    return @intCast(U(bits), int >> @bitSizeOf(@TypeOf(int)) - bits);
 }
 
 pub fn concat(comptime T: type, highInt: anytype, lowInt: anytype) T {
-    return @intCast(T, highInt) << typeSize(lowInt) | lowInt;
+    return @intCast(T, highInt) << @bitSizeOf(@TypeOf(lowInt)) | lowInt;
 }

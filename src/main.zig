@@ -41,50 +41,6 @@ fn mulRev8(value: u8) u8 {
 }
 
 fn perm16(value: u16) u16 {
-    var a = value;
-    a +%= a << value % 16;
-    // a ^= a >> @intCast(u4, 1);
-    return a;
-}
-
-pub fn main() !void {
-
-    // const bitSize = 2 * 5;
-    // const T = bits.U(bitSize);
-    // var mul: T = 5;
-    // while (true) {
-    //     var add: T = 1;
-    //     while (true) {
-    //         var good = true;
-    //         var set = std.bit_set.ArrayBitSet(usize, 1 << bitSize).initEmpty();
-    //         var state: T = 1;
-    //         var i: usize = 0;
-    //         while (i < 1 << bitSize) {
-    //             var new = state *% mul;
-    //             new +%= add;
-    //             state = new ^ new >> bitSize / 2;
-    //             if (set.isSet(state)) {
-    //                 good = false;
-    //                 break;
-    //             }
-    //             set.set(state);
-    //             i += 1;
-    //         }
-    //         if (good) {
-    //             std.debug.print("{d:0>4} {d:0>4}\n", .{ mul, add });
-    //         }
-    //         add +%= 2;
-    //         if (add == 1) {
-    //             break;
-    //         }
-    //     }
-    //     mul +%= 8;
-    //     if (mul == 5) {
-    //         break;
-    //     }
-    // }
-    // std.debug.print("Done!\n", .{});
-
     // a = ror(a, b);
     // a +%= f(b); (f doesn't need to be reversible)
     // a -%= f(b);
@@ -95,20 +51,110 @@ pub fn main() !void {
     // a ^= a << k;
     // a ^= a >> k;
     // a = @bitReverse(a);
+    var a = value;
+    a *%= a;
+    return a;
+}
 
-    try childTest();
+pub fn main() !void {
+    // var child = std.ChildProcess.init(&[_][]const u8{
+    //     "/Users/gio/PractRand/RNG_test",
+    //     "stdin",
+    // }, alloc);
+    // child.stdin_behavior = .Pipe;
+    // child.stdout_behavior = .Pipe;
+    // try child.spawn();
+    // const stdIn = child.stdin.?.writer();
+    // const stdOut = child.stdout.?.reader();
+
+    // while (true) {
+    //     std.debug.print("Start\n", .{});
+    //     stdIn.writeInt(u64, 0, .Little) catch {
+    //         std.debug.print("{any}\n", .{stdOut.readAllAlloc(alloc, 1024)});
+    //         return;
+    //     };
+    //     std.debug.print("End\n", .{});
+    // }
+
+    try testing();
+    // try childTest();
     // drawPerm(mulRev8);
     // try testHash();
     // try testMCG64();
     // permutationCheck(u16, perm16);
     // time();
+    // disassembly();
+    // mulXshSearch();
 }
-fn childTest() !void {
+fn mulXshSearch() void {
+    const bitSize = 12;
+    const T = bits.U(bitSize);
+    var goodCount: usize = 0;
+    var mul: T = 5;
+    while (true) {
+        var add: T = 1;
+        while (true) {
+            var good = true;
+            var set = std.bit_set.ArrayBitSet(usize, 1 << bitSize).initEmpty();
+            var state: T = 1;
+            var i: usize = 0;
+            while (i < 1 << bitSize) {
+                var new = state *% mul;
+                new +%= add;
+                state = new ^ new >> bitSize / 2;
+                if (set.isSet(state)) {
+                    good = false;
+                    break;
+                }
+                set.set(state);
+                i += 1;
+            }
+            if (good) {
+                goodCount += 1;
+                // std.debug.print("{d:0>4}\n", .{mul});
+                // std.debug.print("{d:0>4} {d:0>4}\n", .{ mul, add });
+            }
+            add +%= 2;
+            if (add == 1) {
+                break;
+            }
+        }
+        mul +%= 8;
+        if (mul == 5) {
+            break;
+        }
+    }
+    const total = (1 << bitSize) * (1 << bitSize);
+    const proc = @intToFloat(f64, goodCount) / @intToFloat(f64, total);
+    std.debug.print("{} out of {}, or {d}%\n", .{ goodCount, total, proc });
+}
+fn disassembly() void {
+    const count = 1 << 30;
+    var state: u64 = 0; // Print the state so compiler does not optimize it away
+    const start = std.time.nanoTimestamp();
+    for ([1]u0{0} ** count) |_| {
+        state *%= 0xd1342543de82ef95;
+        state +%= 0xf1357aea2e62a9c5;
+        state *%= 0xd1342543de82ef95;
+        state +%= 0xf1357aea2e62a9c5;
+        state *%= 0xd1342543de82ef95;
+        state +%= 0xf1357aea2e62a9c5;
+        state *%= 0xd1342543de82ef95;
+        state +%= 0xf1357aea2e62a9c5;
+    }
+    const end = std.time.nanoTimestamp();
+    std.debug.print("{d}, {}\n", .{ count / @intToFloat(f64, end - start), state });
+}
+fn testing() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
-        "stdin64",
+        "stdin",
         "-tlmin",
         "10",
+        "-tf",
+        "2",
+        "-te",
+        "1",
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
@@ -116,14 +162,76 @@ fn childTest() !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    // var r = rand.DefaultPrng.init(0);
+    // const mul64 = 0xd1342543de82ef95; // LCG
+    // const mul64 = 0xf1357aea2e62a9c5; // MCG
+
+    const mul128 = 0xdefba91144f2b375; // M64
+
+    var state: u128 = 1;
     var buf = [1]u64{0} ** (1 << 10);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
-            // buf[i] = r.random().int(u64);
-            buf[i] = prng.entropy64();
+            state *%= mul128;
+            // state +%= mul64;
+            // state ^= state >> 32;
+            const s = bits.highBits(70, state);
+            buf[i] = bits.ror(64, bits.low(64, s), bits.highBits(6, s));
+        }
+        try stdIn.writeAll(std.mem.asBytes(&buf));
+    }
+}
+fn childTest() !void {
+    var child = std.ChildProcess.init(&[_][]const u8{
+        "/Users/gio/PractRand/RNG_test",
+        "stdin",
+        "-tlmin",
+        "10",
+        "-tf",
+        "2",
+        "-te",
+        "1",
+        "-multithreaded",
+    }, alloc);
+    child.stdin_behavior = .Pipe;
+    child.stdout_behavior = .Pipe;
+    try child.spawn();
+    const stdIn = child.stdin.?.writer();
+
+    // const mul32A = 0x915f77f5;
+    // const mul32B = 0x93d765dd;
+
+    const mul64 = 0xc2ec33ef97a5;
+    // const mul64 = 0xd1342543de82ef95;
+    // const mul64 = 0xbdcdbb079f8d;
+    // const mul64 = 0xf1357aea2e62a9c5;
+
+    var state: u64 = 0;
+    var buf = [1]u64{0} ** (1 << 10);
+    while (true) {
+        var i: usize = 0;
+        while (i < buf.len) {
+            defer i += 1;
+            defer state += 1;
+            // 18 20 19 19 19 18 |14| 17 17 17, 30 30 |29| 27 26
+            // 10 10 12 12 12 12 |12| 12 13 12
+            var a = state;
+            // var a = @bitReverse(state);
+            // a ^= a >> 16;
+            // a *%= mul32B;
+            // a ^= a >> 16;
+            a *%= mul64;
+            a ^= a >> 32;
+            a *%= mul64;
+            a ^= a >> 32;
+            a *%= mul64;
+            a ^= a >> 32;
+            a *%= mul64;
+            a ^= a >> 32;
+            a *%= mul64;
+            a ^= a >> 32;
+            buf[i] = a;
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }
@@ -209,25 +317,38 @@ fn permutationCheck(comptime T: type, comptime f: fn (T) T) void {
     const delta = std.time.timestamp() - timeStart;
     std.debug.print("Running Time: {} sec\n", .{delta});
 }
+const S = u64;
+// const S = std.rand.DefaultPrng;
 const O = u32;
-const S = struct { o: O };
 fn in() S {
-    return .{ .o = 3 };
+    return 1;
+    // return std.rand.DefaultPrng.init(0);
 }
-fn st(state: *S) void {
-    state.o +%= state.o;
-    // state.o ^= state.p.int(O);
-    // _ = state.p.int(O);
+fn stepFn(s: *S) O {
+    s.* *%= 0xd1342543de82ef95;
+    s.* +%= 0xf1357aea2e62a9c5;
+    s.* *%= 0xd1342543de82ef95;
+    s.* +%= 0xf1357aea2e62a9c5;
+    s.* *%= 0xd1342543de82ef95;
+    s.* +%= 0xf1357aea2e62a9c5;
+    s.* *%= 0xd1342543de82ef95;
+    s.* +%= 0xf1357aea2e62a9c5;
+    s.* *%= 0xd1342543de82ef95;
+    s.* +%= 0xf1357aea2e62a9c5;
+    s.* ^= s.* >> 32;
+    return @truncate(u32, s.*);
+    // return s.i.random().int(u32);
 }
 fn time() void {
-    timeHelp(S, in, st);
+    timeHelp(O, S, in, stepFn);
 }
 fn timeHelp(
+    comptime Out: type,
     comptime State: type,
     comptime init: fn () State,
-    comptime step: fn (*State) void,
+    comptime step: fn (*State) Out,
 ) void {
-    // var output: Output = undefined
+    var out: Out = undefined;
     var state: State = undefined;
     var best: f64 = 0;
     const endTime = std.time.nanoTimestamp() + 1_000_000_000;
@@ -237,33 +358,15 @@ fn timeHelp(
         const start = std.time.nanoTimestamp();
         while (i < 1 << 20) {
             defer i += 1;
-            step(&state);
+            out = step(&state);
         }
         const new = @intToFloat(f64, i) / @intToFloat(f64, std.time.nanoTimestamp() - start);
         if (best < new) {
             best = new;
         }
     }
-    std.debug.print("{d}, {}\n", .{ best, state });
+    std.debug.print("{d}, {}\n", .{ best, out });
 }
-
-// fn time() void {
-//     var rng = prng.MCG32.init(69);
-//     var dest: u8 = 0;
-//     var i: u32 = 0;
-//     const timeStart = lib.timeMicro();
-//     while (true) {
-//         const v = @bitCast(u8, rng.range(u8, @truncate(u8, i)));
-//         // std.debug.print("{b:0>128}\n", .{@bitCast(u128, v)});
-//         dest ^= v;
-//         i +%= 1;
-//         if (i == 0) {
-//             break;
-//         }
-//     }
-//     const timeEnd = lib.timeMicro();
-//     std.debug.print("{d}, {}\n", .{ @intToFloat(f64, timeEnd - timeStart) / (1 << 32) * 1000, dest });
-// }
 
 // H1: 15, 0.26701706137000253
 // a = (a ^ 61) ^ (a >> 16);

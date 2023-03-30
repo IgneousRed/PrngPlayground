@@ -1,16 +1,22 @@
-./zig-out/bin/rng-test | /Users/gio/PractRand/RNG_test stdin64 -tlmin 16
+A = L48
+B = L64
+C = M48
+D = M64
+MXsr		32F		32R		64FA	64FB	64FC	64FD	64RA	64RB	64RC	64RD
+	1		13		10		10		13		10		12		10		10		10		10
+	2		14		12		15		15		15		15		12		12		12		12
+	3		29		17		41		00		00		00		17		15		15		15
+	4		15		28		15		00		00		00		15		25		40		40
+	5		30		30		00		00		00		00		00		00		00		00
 
-A = Mul64
-B = Mul48
-MXsr		32F		32R		64FA	64FB	64RA	64RB
-	01		14		10		14		10		10		10
-	02		18		14		25		31		12		12
-	03		28		25		00		00		31		25
-	04		30		30								00		00
+MulAddXsr
+	impossible with add == 0? up to 18 bits with no luck
+	possible witn add != 0
 
-mt19937 fails at 2^38 bytes
+MulAddAsr Sucks
 
-10:10
-12:12
-25:31
-00:00
+
+mt19937 fails at 2^38 bytes ?
+
+zig build-exe src/main.zig -femit-asm=zig-out/bin/asmEmit.s -OReleaseFast
+objdump -S zig-out/bin/rng-test >zig-out/bin/asmObj.s
