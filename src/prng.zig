@@ -14,24 +14,24 @@ pub const Hash64 = struct {
 
     /// Add entropy to the result.
     pub fn mix(self: *Self, value: u64) void {
-        self.state -%= value ^ multiplier;
+        self.state -%= value ^ dev.harmonic64MCG64; // TODO: Study
     }
 
     /// Conclude the calculation and get the result.
-    pub fn done(self: *Self) u64 {
-        var result = self.state *% multiplier;
-        result = (result ^ result >> 32) *% multiplier;
-        result = (result ^ result >> 32) *% multiplier;
-        result = (result ^ result >> 32) *% multiplier;
+    pub fn done(self: *Self) u64 { // TODO: initial Xsh
+        var result = (self.state ^ self.state >> 32) *% dev.harmonic64MCG64;
+        result = (result ^ result >> 32) *% dev.harmonic64MCG64;
+        result = (result ^ result >> 32) *% dev.harmonic64MCG64;
+        // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
         return result ^ result >> 32;
     }
 
     //////// Internal ////////
 
     const Self = @This();
-    const multiplier = 0xf1357aea2e62a9c5;
 };
 
+/// Returns a random u64 by hashing last output and current time.
 pub fn entropy64() u64 {
     var hash64 = Hash64.init(entropy64State);
     hash64.mix(@truncate(u64, @bitCast(u128, std.time.nanoTimestamp())));

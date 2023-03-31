@@ -57,26 +57,29 @@ fn perm16(value: u16) u16 {
 }
 
 pub fn main() !void {
-    // var child = std.ChildProcess.init(&[_][]const u8{
-    //     "/Users/gio/PractRand/RNG_test",
-    //     "stdin",
-    // }, alloc);
-    // child.stdin_behavior = .Pipe;
-    // child.stdout_behavior = .Pipe;
-    // try child.spawn();
-    // const stdIn = child.stdin.?.writer();
-    // const stdOut = child.stdout.?.reader();
+    var child = std.ChildProcess.init(&[_][]const u8{
+        "/Users/gio/PractRand/RNG_test",
+        "stdin",
+    }, alloc);
+    child.stdin_behavior = .Pipe;
+    child.stdout_behavior = .Pipe;
+    try child.spawn();
+    const stdIn = child.stdin.?.writer();
+    const stdOut = child.stdout.?.reader();
 
-    // while (true) {
-    //     std.debug.print("Start\n", .{});
-    //     stdIn.writeInt(u64, 0, .Little) catch {
-    //         std.debug.print("{any}\n", .{stdOut.readAllAlloc(alloc, 1024)});
-    //         return;
-    //     };
-    //     std.debug.print("End\n", .{});
-    // }
+    var state: u64 = 1;
+    while (true) {
+        state *%= dev.harmonic64MCG64;
+        // std.debug.print("Start\n", .{});
+        stdIn.writeInt(u32, @intCast(u32, state >> 32), .Little) catch {
+            std.debug.print("Crash?\n", .{});
+            std.debug.print("{any}\n", .{stdOut.readAllAlloc(alloc, 1024)});
+            return;
+        };
+        // std.debug.print("End\n", .{});
+    }
 
-    try testing();
+    // try testing();
     // try childTest();
     // drawPerm(mulRev8);
     // try testHash();
@@ -165,19 +168,39 @@ fn testing() !void {
     // const mul64 = 0xd1342543de82ef95; // LCG
     // const mul64 = 0xf1357aea2e62a9c5; // MCG
 
-    const mul128 = 0xdefba91144f2b375; // M64
+    // const mul128 = 0xdefba91144f2b375; // M64
 
-    var state: u128 = 1;
+    var state: u64 = 1;
     var buf = [1]u64{0} ** (1 << 10);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
-            state *%= mul128;
-            // state +%= mul64;
-            // state ^= state >> 32;
-            const s = bits.highBits(70, state);
-            buf[i] = bits.ror(64, bits.low(64, s), bits.highBits(6, s));
+            defer state += 1;
+
+            var a = state;
+
+            // var a = @bitReverse(state);
+
+            // var a = state;
+            // a ^= a >> 32;
+
+            // var a = @bitReverse(state);
+            // a ^= a >> 32;
+
+            a *%= dev.harmonic64MCG64;
+            a ^= a >> 32;
+            a *%= dev.harmonic64MCG64;
+            a ^= a >> 32;
+            a *%= dev.harmonic64MCG64;
+            a ^= a >> 32;
+            // var result = (a ^ a >> 32) *% dev.harmonic64MCG64;
+            // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
+            // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
+            // result ^= result >> 32;
+            // buf[i] = @truncate(u32, result);
+            buf[i] = a;
+            // buf[i] = @truncate(u32, a);
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }
@@ -199,13 +222,7 @@ fn childTest() !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    // const mul32A = 0x915f77f5;
-    // const mul32B = 0x93d765dd;
-
-    const mul64 = 0xc2ec33ef97a5;
-    // const mul64 = 0xd1342543de82ef95;
-    // const mul64 = 0xbdcdbb079f8d;
-    // const mul64 = 0xf1357aea2e62a9c5;
+    const mul64 = 0xf1357aea2e62a9c5;
 
     var state: u64 = 0;
     var buf = [1]u64{0} ** (1 << 10);
@@ -214,21 +231,8 @@ fn childTest() !void {
         while (i < buf.len) {
             defer i += 1;
             defer state += 1;
-            // 18 20 19 19 19 18 |14| 17 17 17, 30 30 |29| 27 26
-            // 10 10 12 12 12 12 |12| 12 13 12
             var a = state;
             // var a = @bitReverse(state);
-            // a ^= a >> 16;
-            // a *%= mul32B;
-            // a ^= a >> 16;
-            a *%= mul64;
-            a ^= a >> 32;
-            a *%= mul64;
-            a ^= a >> 32;
-            a *%= mul64;
-            a ^= a >> 32;
-            a *%= mul64;
-            a ^= a >> 32;
             a *%= mul64;
             a ^= a >> 32;
             buf[i] = a;
