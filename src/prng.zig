@@ -14,15 +14,14 @@ pub const Hash64 = struct {
 
     /// Add entropy to the result.
     pub fn mix(self: *Self, value: u64) void {
-        self.state -%= value ^ dev.harmonic64MCG64; // TODO: Study
+        self.state -%= value ^ dev.harmonic64MCG64;
     }
 
     /// Conclude the calculation and get the result.
-    pub fn done(self: *Self) u64 { // TODO: initial Xsh
+    pub fn done(self: *Self) u64 {
         var result = (self.state ^ self.state >> 32) *% dev.harmonic64MCG64;
         result = (result ^ result >> 32) *% dev.harmonic64MCG64;
         result = (result ^ result >> 32) *% dev.harmonic64MCG64;
-        // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
         return result ^ result >> 32;
     }
 

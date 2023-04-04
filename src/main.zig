@@ -3,6 +3,7 @@ const lib = @import("lib.zig");
 const prng = @import("prng.zig");
 const dev = @import("prng_dev.zig");
 const bits = @import("bits.zig");
+const autoTest = @import("autoTest.zig");
 const rand = std.rand;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -55,31 +56,14 @@ fn perm16(value: u16) u16 {
     a *%= a;
     return a;
 }
-
 pub fn main() !void {
-    var child = std.ChildProcess.init(&[_][]const u8{
-        "/Users/gio/PractRand/RNG_test",
-        "stdin",
-    }, alloc);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Pipe;
-    try child.spawn();
-    const stdIn = child.stdin.?.writer();
-    const stdOut = child.stdout.?.reader();
+    // var map: autoTest.TestNameMap = undefined;
+    // _ = try autoTest.lineParse(&map, "");
+    // _ = try autoTest.allocValue(alloc, f64, 42, 100);
+    // var s: []u8 = undefined;
+    // _ = try autoTest.testPRNG(u8, 20, 64);
 
-    var state: u64 = 1;
-    while (true) {
-        state *%= dev.harmonic64MCG64;
-        // std.debug.print("Start\n", .{});
-        stdIn.writeInt(u32, @intCast(u32, state >> 32), .Little) catch {
-            std.debug.print("Crash?\n", .{});
-            std.debug.print("{any}\n", .{stdOut.readAllAlloc(alloc, 1024)});
-            return;
-        };
-        // std.debug.print("End\n", .{});
-    }
-
-    // try testing();
+    try testing();
     // try childTest();
     // drawPerm(mulRev8);
     // try testHash();
@@ -88,6 +72,35 @@ pub fn main() !void {
     // time();
     // disassembly();
     // mulXshSearch();
+    // try errorNo();
+}
+fn errorNo() !void {
+    var child = std.ChildProcess.init(&[_][]const u8{
+        "/Users/gio/PractRand/RNG_test",
+        "stdin",
+        "-tlmin",
+        "10",
+        "-tf",
+        "2",
+        "-te",
+        "1",
+        "-multithreaded",
+    }, alloc);
+    child.stdin_behavior = .Pipe;
+    child.stdout_behavior = .Pipe;
+    try child.spawn();
+    const stdIn = child.stdin.?.writer();
+    const stdOut = child.stdout.?.reader();
+
+    while (true) {
+        const someData = 0;
+        // std.debug.print("Start\n", .{});
+        stdIn.writeInt(u64, someData, .Little) catch {
+            std.debug.print("{any}\n", .{stdOut.readAllAlloc(alloc, 1024)});
+            return;
+        };
+        // std.debug.print("End\n", .{});
+    }
 }
 fn mulXshSearch() void {
     const bitSize = 12;
@@ -152,12 +165,16 @@ fn testing() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
-        "-tlmin",
-        "10",
+        // "-a",
         "-tf",
         "2",
         "-te",
         "1",
+        "-tlmin",
+        "10",
+        "-tlmax",
+        "99",
+        // "-tlmaxonly",
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
@@ -165,42 +182,23 @@ fn testing() !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    // const mul64 = 0xd1342543de82ef95; // LCG
-    // const mul64 = 0xf1357aea2e62a9c5; // MCG
-
-    // const mul128 = 0xdefba91144f2b375; // M64
-
-    var state: u64 = 1;
-    var buf = [1]u64{0} ** (1 << 10);
+    var state: u64 = 0;
+    var buf = [1]u64{0} ** (1 << 16);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
-            defer state += 1;
+            var t = @truncate(u64, @bitCast(u128, std.time.nanoTimestamp()));
+            // state ^= t;
+            // state +%= t;
+            state -%= t;
 
-            var a = state;
+            state *%= dev.harmonic64MCG64;
+            state ^= state >> 32;
+            state *%= dev.harmonic64MCG64;
+            state ^= state >> 32;
 
-            // var a = @bitReverse(state);
-
-            // var a = state;
-            // a ^= a >> 32;
-
-            // var a = @bitReverse(state);
-            // a ^= a >> 32;
-
-            a *%= dev.harmonic64MCG64;
-            a ^= a >> 32;
-            a *%= dev.harmonic64MCG64;
-            a ^= a >> 32;
-            a *%= dev.harmonic64MCG64;
-            a ^= a >> 32;
-            // var result = (a ^ a >> 32) *% dev.harmonic64MCG64;
-            // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
-            // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
-            // result ^= result >> 32;
-            // buf[i] = @truncate(u32, result);
-            buf[i] = a;
-            // buf[i] = @truncate(u32, a);
+            buf[i] = state;
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }
@@ -412,3 +410,4 @@ fn timeHelp(
 // a = (a +% 0x17bea992) +% (a << 7);
 
 // TODO: TEST EVERYTHING!
+// TODO: Try to const everything
