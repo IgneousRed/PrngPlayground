@@ -5,6 +5,7 @@ const dev = @import("prng_dev.zig");
 const bits = @import("bits.zig");
 const autoTest = @import("autoTest.zig");
 const rand = std.rand;
+const math = std.math;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
@@ -56,14 +57,42 @@ fn perm16(value: u16) u16 {
     a *%= a;
     return a;
 }
-pub fn main() !void {
-    // var map: autoTest.TestNameMap = undefined;
-    // _ = try autoTest.lineParse(&map, "");
-    // _ = try autoTest.allocValue(alloc, f64, 42, 100);
-    // var s: []u8 = undefined;
-    // _ = try autoTest.testPRNG(u8, 20, 64);
 
-    try testing();
+fn dist(a: f64, b: f64) f64 {
+    const avr = a + b;
+    if (avr > 1) {
+        return 1 - math.pow(f64, 2 - avr, 2) / 2;
+    } else return math.pow(f64, avr, 2) / 2;
+}
+
+pub fn main() !void {
+    // _ = try autoTest.testPRNG(u0, alloc, 10, 64);
+    std.debug.print("{any}\n", .{try autoTest.testPRNG(u0, alloc, 3, 2)});
+
+    // const count = 16;
+    // var rng = prng.MCG64.new();
+    // var buckets = [1]u30{0} ** count;
+    // var i: usize = 0;
+    // while (i < 1 << 24) {
+    //     defer i += 1;
+    //     const val = dist(dist(rng.float64(), rng.float64()), dist(rng.float64(), rng.float64()));
+    //     buckets[@floatToInt(usize, (@floor(val * count)))] += 1;
+    // }
+    // var biggest: u30 = 0;
+    // i = 0;
+    // while (i < count) {
+    //     defer i += 1;
+    //     if (biggest < buckets[i]) biggest = buckets[i];
+    // }
+    // var results = [1]f64{0} ** count;
+    // for (buckets) |v, j| {
+    //     results[j] = @intToFloat(f64, v) / @intToFloat(f64, biggest);
+    // }
+    // for (results) |v| {
+    //     std.debug.print("{d:.2} ", .{v});
+    // }
+
+    // try testing();
     // try childTest();
     // drawPerm(mulRev8);
     // try testHash();
@@ -165,7 +194,7 @@ fn testing() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
-        // "-a",
+        "-a",
         "-tf",
         "2",
         "-te",
@@ -174,7 +203,7 @@ fn testing() !void {
         "10",
         "-tlmax",
         "99",
-        // "-tlmaxonly",
+        "-tlmaxonly",
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
@@ -182,21 +211,23 @@ fn testing() !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    var state: u64 = 0;
-    var buf = [1]u64{0} ** (1 << 16);
+    const T = u32;
+    var state: T = 0;
+    var buf = [1]T{0} ** (1 << 16);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
-            var t = @truncate(u64, @bitCast(u128, std.time.nanoTimestamp()));
+            // var t = @truncate(T, @bitCast(u128, std.time.nanoTimestamp()));
             // state ^= t;
             // state +%= t;
-            state -%= t;
+            // state -%= t;
+            state +%= dev.oddPhiFraction(T);
 
-            state *%= dev.harmonic64MCG64;
-            state ^= state >> 32;
-            state *%= dev.harmonic64MCG64;
-            state ^= state >> 32;
+            // state *%= dev.harmonic64MCG64;
+            // state ^= state >> 32;
+            // state *%= dev.harmonic64MCG64;
+            // state ^= state >> 32;
 
             buf[i] = state;
         }

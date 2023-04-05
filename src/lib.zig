@@ -1,5 +1,7 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const mem = std.mem;
+const Allocator = mem.Allocator;
 
 pub fn UnsignedSized(comptime T: type) type {
     return std.meta.Int(.unsigned, @bitSizeOf(T));
@@ -82,6 +84,12 @@ pub fn phiFraction(comptime T: type) T {
     const bits = @bitSizeOf(T);
     const one = @as(std.meta.Int(.unsigned, bits * 2 + 3), 1) << bits;
     return @intCast(T, std.math.sqrt((one << bits) * 5) - one >> 1);
+}
+
+pub fn allocValue(allocator: Allocator, comptime T: type, value: T, n: usize) ![]T {
+    var result = try allocator.alloc(T, n);
+    mem.set(T, result, value);
+    return result;
 }
 
 pub const MatrixError = error{ MatrixIncompatibleSizes, MatrixCopyOOB };

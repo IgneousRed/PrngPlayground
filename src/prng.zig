@@ -212,8 +212,8 @@ pub const MCG64 = struct {
 
     /// Returns a random u64. Faster than `next128()`.
     pub fn next64(self: *Self) u64 {
-        const state = bits.high(u70, self.advance());
-        return bits.ror64(@truncate(u64, state), bits.high(u6, state));
+        const state = bits.highBits(70, self.advance());
+        return bits.ror64(@truncate(u64, state), bits.highBits(6, state));
     }
 
     /// Returns a random u128. Slower than `next64()`.
@@ -327,7 +327,7 @@ pub const MCG64 = struct {
 
     /// Advances the state.
     fn advance(self: *Self) u128 {
-        self.state *%= dev.preferredMultiplierMCG128;
+        self.state *%= dev.harmonic128MCG128;
         return self.state;
     }
 };
