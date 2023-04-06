@@ -66,8 +66,8 @@ fn dist(a: f64, b: f64) f64 {
 }
 
 pub fn main() !void {
-    // _ = try autoTest.testPRNG(u0, alloc, 10, 64);
-    std.debug.print("{any}\n", .{try autoTest.testPRNG(u0, alloc, 3, 2)});
+    var q = try autoTest.testPRNG(u0, alloc, 3, 1);
+    _ = q;
 
     // const count = 16;
     // var rng = prng.MCG64.new();
@@ -75,7 +75,7 @@ pub fn main() !void {
     // var i: usize = 0;
     // while (i < 1 << 24) {
     //     defer i += 1;
-    //     const val = dist(dist(rng.float64(), rng.float64()), dist(rng.float64(), rng.float64()));
+    //     const val = dist(dist(rng.float64(), rng.float64()), rng.float64());
     //     buckets[@floatToInt(usize, (@floor(val * count)))] += 1;
     // }
     // var biggest: u30 = 0;
@@ -194,7 +194,7 @@ fn testing() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
-        "-a",
+        // "-a",
         "-tf",
         "2",
         "-te",
@@ -203,7 +203,7 @@ fn testing() !void {
         "10",
         "-tlmax",
         "99",
-        "-tlmaxonly",
+        // "-tlmaxonly",
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
@@ -211,25 +211,46 @@ fn testing() !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    const T = u32;
+    const T = u64;
     var state: T = 0;
     var buf = [1]T{0} ** (1 << 16);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
+
+            state += 1;
             // var t = @truncate(T, @bitCast(u128, std.time.nanoTimestamp()));
             // state ^= t;
             // state +%= t;
             // state -%= t;
-            state +%= dev.oddPhiFraction(T);
+            // state +%= dev.oddPhiFraction(T);
 
             // state *%= dev.harmonic64MCG64;
             // state ^= state >> 32;
             // state *%= dev.harmonic64MCG64;
-            // state ^= state >> 32;
+            // state ^= state >> 24;
 
-            buf[i] = state;
+            var value = state;
+            value ^= value >> 36;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 24;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 36;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 24;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 36;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 24;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 36;
+            value *%= dev.harmonic64MCG64;
+            value ^= value >> 24;
+            value *%= dev.harmonic64MCG64;
+
+            // buf[i] = state;
+            buf[i] = value;
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }

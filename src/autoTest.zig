@@ -17,6 +17,7 @@ pub fn testPRNG(
     var asd = try ASD.init(allocator, orders, tries);
     var i = tries;
     while (i > 0) {
+        defer i -= 1;
         try asd.run(i);
     }
     return try asd.done();
@@ -53,7 +54,7 @@ const ASD = struct {
         return Self{
             .alloc = allocator,
             .tallySlice = slice,
-            .tallyIndex = 0,
+            .tallyIndex = -%@as(usize, 1),
         };
     }
 
@@ -78,10 +79,11 @@ const ASD = struct {
         try tester.spawn();
         const testerIn = tester.stdin.?.writer();
         const testerOut = tester.stdout.?.reader();
+        _ = try os.fcntl(tester.stdin.?.handle, os.F.SETFL, os.O.NONBLOCK);
         _ = try os.fcntl(tester.stdout.?.handle, os.F.SETFL, os.O.NONBLOCK);
 
         var readIndex: u16 = 0;
-        var readBuffer = [1]u8{0} ** (1 << 16);
+        var readBuffer = [1]u8{0} ** (1 << 16); // TODO: Increase
         var writeBuffer = [1]u64{0} ** (1 << 10); // TODO: Increase?
         var state: u64 = i *% dev.oddPhiFraction(u64);
 
@@ -90,21 +92,26 @@ const ASD = struct {
             // Write
             for (writeBuffer) |_, w| {
                 var value = state;
-                value ^= value >> 32;
+                value ^= value >> 36;
                 value *%= dev.harmonic64MCG64;
-                value ^= value >> 32;
+                value ^= value >> 24;
                 value *%= dev.harmonic64MCG64;
-                value ^= value >> 32;
+                value ^= value >> 36;
                 value *%= dev.harmonic64MCG64;
-                value ^= value >> 32;
+                value ^= value >> 24;
                 value *%= dev.harmonic64MCG64;
-                value ^= value >> 32;
+                value ^= value >> 36;
                 value *%= dev.harmonic64MCG64;
-                value ^= value >> 32;
+                value ^= value >> 24;
+                value *%= dev.harmonic64MCG64;
+                value ^= value >> 36;
+                value *%= dev.harmonic64MCG64;
+                value ^= value >> 24;
+                value *%= dev.harmonic64MCG64;
                 writeBuffer[w] = value;
                 state += 1;
             }
-            try testerIn.writeAll(mem.asBytes(writeBuffer[0..]));
+            testerIn.writeAll(mem.asBytes(writeBuffer[0..])) catch {};
 
             // Read
             var readCount = testerOut.read(readBuffer[readIndex..]) catch 0;
@@ -141,7 +148,7 @@ const ASD = struct {
 
     fn anyLine(self: *Self, line: []const u8) !bool {
         // If line empty
-        if (line.len == 0) return if (self.tallyIndex + 1 == self.tallySlice.len) true else false;
+        if (line.len == 0) return if (self.tallyIndex +% 1 == self.tallySlice.len) true else false;
 
         // If declaring order of magnitude
         if (mem.eql(u8, line[0..6], "length")) {
@@ -206,19 +213,17 @@ const ASD = struct {
         const nonDigitChar = line[nonDigitIndex];
 
         // If p == '0' or '1'
-        if (nonDigitChar == ' ') return {
-            try self.tallySlice[self.tallyIndex].note(testName, 0.0);
-            return;
-        };
+        if (nonDigitChar == ' ') {
+            return try self.tallySlice[self.tallyIndex].note(testName, 0.0);
+        }
 
         // If p == normal value: "0.188"
-        if (nonDigitChar == '.') return {
-            try self.tallySlice[self.tallyIndex].note(
+        if (nonDigitChar == '.') {
+            return try self.tallySlice[self.tallyIndex].note(
                 testName,
                 trailingNumber * math.pow(f64, 10, -trailingDigitCount),
             );
-            return;
-        };
+        }
 
         // p must be in scientific notation
         var coefficient = charToF64(line[nonDigitIndex - 2]);
@@ -227,11 +232,11 @@ const ASD = struct {
         if (line[nonDigitIndex - 3] == '.') {
             coefficient = charToF64(line[nonDigitIndex - 4]) + coefficient / 10;
         }
-        try self.tallySlice[self.tallyIndex].note(
+
+        return try self.tallySlice[self.tallyIndex].note(
             testName,
             coefficient * math.pow(f64, 10, -trailingNumber),
         );
-        return;
     }
 };
 
@@ -264,7 +269,15 @@ const Tally = struct {
     }
 
     /// Deinits internal state, returns resulting map.
-    pub fn conclude(self: *Self) StringHashMap(Data) {
+    pub fn conclude(self: *Self) !StringHashMap(Data) {
+        var result = StringHashMap([]f64).init(self.alloc);
+        var iter = self.map.iterator();
+        while (true) {
+            const pair = iter.next() orelse break;
+            const slice = pair.value_ptr.data[0..pair.value_ptr.count];
+            result.putNoClobber(pair.key_ptr.*, self.alloc.);
+            // try self.alloc.realloc(pair.data, pair.count);
+        }
         return self.map;
     }
 
