@@ -290,3 +290,14 @@ const Tally = struct {
 
     const Self = @This();
 };
+
+// pub fn BoundedSlice(comptime T: type) struct {
+//     slice: []T,
+//     count: usize,
+
+//     pub fn init(count: usize) Self {
+//         return Self {
+//             slice
+//         }
+//     }
+// };
