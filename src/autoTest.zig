@@ -6,6 +6,9 @@ const debug = std.debug;
 const dev = @import("prng_dev.zig");
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
+const BoundedArray = std.BoundedArray;
+const rand = std.rand;
+const Random = rand.Random;
 
 pub fn testPRNG(
     comptime prng: type,
@@ -146,9 +149,13 @@ const ASD = struct {
 
     const Self = @This();
 
+    /// Updates the tallyIndex and tallies results
     fn anyLine(self: *Self, line: []const u8) !bool {
         // If line empty
         if (line.len == 0) return if (self.tallyIndex +% 1 == self.tallySlice.len) true else false;
+
+        // Ignore if un-indented or table header
+        if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) return false;
 
         // If declaring order of magnitude
         if (mem.eql(u8, line[0..6], "length")) {
@@ -160,28 +167,29 @@ const ASD = struct {
             return false;
         }
 
-        // Throw away un-indented and table header
-        if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) return false;
-
         // Process the actual test result
-        try self.testResult(line[2..]);
+        try self.tallyResult(line[2..]);
         return false;
     }
 
-    fn testResult(self: *Self, line: []const u8) !void {
-        var i: usize = 0;
+    /// Tallies the folded result, meaning both 0 and 1 will be 0
+    fn tallyResult(self: *Self, line: []const u8) !void {
+        // Skip indentation
+        var i: usize = 2;
 
         // Find test name
         while (line[i] != ' ') i += 1;
-        const testName = line[0..i];
+        const testName = line[2..i];
 
         // Find 'p'
         while (line[i] != 'p') {
             defer i += 1;
 
-            // When instead of 'p' there is "fail" or "pass" we ignore it,
-            // since they are terrible for meta tests
-            if (line[i] == '"') return;
+            // When instead of 'p' there is "fail" or "pass"
+            if (line[i] == '"') {
+                const value = if (line[i + 1] == 'p') 1 else 0;
+                return try self.tallySlice[self.tallyIndex].note(testName, value);
+            }
         }
 
         // Jump after '='
@@ -221,7 +229,7 @@ const ASD = struct {
         if (nonDigitChar == '.') {
             return try self.tallySlice[self.tallyIndex].note(
                 testName,
-                trailingNumber * math.pow(f64, 10, -trailingDigitCount),
+                fold(trailingNumber * math.pow(f64, 10, -trailingDigitCount)),
             );
         }
 
@@ -235,69 +243,49 @@ const ASD = struct {
 
         return try self.tallySlice[self.tallyIndex].note(
             testName,
-            coefficient * math.pow(f64, 10, -trailingNumber),
+            fold(coefficient * math.pow(f64, 10, -trailingNumber)),
         );
     }
 };
 
-/// Talies results from multiple test runs, calculates each test's average.
-const Tally = struct {
-    alloc: Allocator,
-    map: std.StringHashMap(Data),
-    tries: usize,
+/// Talies results from multiple test runs.
+pub fn Tally(comptime runs: usize) type {
+    return struct {
+        map: StringHashMap(BoundedArray(f64, runs)),
 
-    pub fn init(allocator: Allocator, tries: usize) Self {
-        return Self{
-            .alloc = allocator,
-            .map = std.StringHashMap(Data).init(allocator),
-            .tries = tries,
-        };
-    }
-
-    /// Tallies the test. Folds the result, meaning both 0 and 1 will be 0
-    pub fn note(self: *Self, name: []const u8, result: f64) !void {
-        const value = fold(result);
-        if (self.map.contains(name)) {
-            const tally = self.map.getPtr(name).?;
-            tally.data[tally.count] = value;
-            tally.count += 1;
-        } else {
-            const slice = try self.alloc.alloc(f64, self.tries);
-            slice[0] = value;
-            try self.map.putNoClobber(name, .{ .data = slice, .count = 1 });
+        pub fn init(allocator: Allocator) Self {
+            return Self{
+                .map = StringHashMap(BoundedArray(f64, runs)).init(allocator),
+            };
         }
-    }
 
-    /// Deinits internal state, returns resulting map.
-    pub fn conclude(self: *Self) !StringHashMap(Data) {
-        var result = StringHashMap([]f64).init(self.alloc);
-        var iter = self.map.iterator();
-        while (true) {
-            const pair = iter.next() orelse break;
-            const slice = pair.value_ptr.data[0..pair.value_ptr.count];
-            result.putNoClobber(pair.key_ptr.*, self.alloc.);
-            // try self.alloc.realloc(pair.data, pair.count);
+        /// Tallies the test.
+        pub fn note(self: *Self, name: []const u8, result: f64) !void {
+            if (!self.map.contains(name)) {
+                try self.map.putNoClobber(name, BoundedArray(f64, runs).init(0) catch unreachable);
+            }
+            self.map.getPtr(name).?.appendAssumeCapacity(result);
         }
-        return self.map;
-    }
 
-    pub const Data = struct {
-        data: []f64,
-        count: usize,
+        pub fn done(self: *Self, rng: Random) StringHashMap([runs]f64) { // TODO: Slice > HashMap?
+            defer self.map.deinit(); // TODO: Free keys?
+            const result = StringHashMap([runs]f64).init(self.map.allocator);
+            var iter = self.map.iterator();
+            while (true) {
+                const pair = iter.next() orelse break;
+                if (pair.value_ptr.len < runs) {
+                    while (pair.value_ptr.len < runs) {
+                        pair.value_ptr.appendAssumeCapacity(1);
+                    }
+                    rng.shuffle(f64, pair.value_ptr.buffer);
+                }
+                try result.put(pair.key_ptr.*, pair.value_ptr.buffer);
+            }
+            return result;
+        }
+
+        // -------------------------------- Internal --------------------------------
+
+        const Self = @This();
     };
-
-    // internal
-
-    const Self = @This();
-};
-
-// pub fn BoundedSlice(comptime T: type) struct {
-//     slice: []T,
-//     count: usize,
-
-//     pub fn init(count: usize) Self {
-//         return Self {
-//             slice
-//         }
-//     }
-// };
+}

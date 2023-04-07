@@ -66,8 +66,8 @@ fn dist(a: f64, b: f64) f64 {
 }
 
 pub fn main() !void {
-    var q = try autoTest.testPRNG(u0, alloc, 3, 1);
-    _ = q;
+    // var q = try autoTest.testPRNG(u0, alloc, 3, 1);
+    // _ = q;
 
     // const count = 16;
     // var rng = prng.MCG64.new();
@@ -92,7 +92,7 @@ pub fn main() !void {
     //     std.debug.print("{d:.2} ", .{v});
     // }
 
-    // try testing();
+    try testing();
     // try childTest();
     // drawPerm(mulRev8);
     // try testHash();
