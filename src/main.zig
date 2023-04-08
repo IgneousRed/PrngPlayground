@@ -64,9 +64,58 @@ fn dist(a: f64, b: f64) f64 {
         return 1 - math.pow(f64, 2 - avr, 2) / 2;
     } else return math.pow(f64, avr, 2) / 2;
 }
+fn stateInit(value: u32) u32 {
+    return value;
+}
+var global: usize = 1;
+fn mixIn(state: u32, value: u32) u32 {
+    var v = value;
+    v ^= v >> 20; // Different comstant depending on where random bits are
 
+    var s = state *% dev.harmonic32MCG32 +% v;
+
+    s ^= s >> @intCast(u5, global); // 16 is NOT ideal constant (7: 32176653)
+    return s;
+}
+fn val(value: u32, i: usize) u32 {
+    return if (value >> @intCast(u5, i) & 1 > 0) 1 << 31 else 0;
+}
 pub fn main() !void {
-    // var q = try autoTest.testPRNG(u0, alloc, 3, 1);
+    // while (global < 32) {
+    //     defer global += 1;
+    //     var inputs: usize = 20;
+    //     while (inputs < 21) {
+    //         defer inputs += 1;
+    //         const shift = @as(u32, 1) << @intCast(u5, inputs);
+    //         var results = try alloc.alloc(u32, shift);
+    //         var config: u32 = 0;
+    //         while (config < shift) {
+    //             defer config += 1;
+    //             var state = stateInit(@intCast(u32, inputs));
+    //             // var state = stateInit(val(config, 0));
+    //             var i: usize = 0;
+    //             while (i < inputs) {
+    //                 defer i += 1;
+    //                 state = mixIn(state, val(config, i));
+    //             }
+    //             results[config] = state;
+    //         }
+    //         std.sort.sort(u32, results, {}, std.sort.asc(u32));
+    //         var dupes: usize = 0;
+    //         var i: usize = 1;
+    //         while (i < shift) {
+    //             defer i += 1;
+    //             if (results[i] == results[i - 1]) dupes += 1;
+    //         }
+    //         if (dupes > 0) {
+    //             const perc = @intToFloat(f64, dupes) / @intToFloat(f64, shift) * 100;
+    //             std.debug.print("Global {d:2}: {}({d}%)\n", .{ global, dupes, perc });
+    //         }
+    //     }
+    // }
+
+    // var q = try autoTest.testPRNG(u0, 3, 2, alloc);
+    // std.debug.print("{any}", .{q});
     // _ = q;
 
     // const count = 16;
@@ -220,36 +269,14 @@ fn testing() !void {
             defer i += 1;
 
             state += 1;
-            // var t = @truncate(T, @bitCast(u128, std.time.nanoTimestamp()));
-            // state ^= t;
-            // state +%= t;
-            // state -%= t;
-            // state +%= dev.oddPhiFraction(T);
+            var value: T = state;
 
-            // state *%= dev.harmonic64MCG64;
-            // state ^= state >> 32;
-            // state *%= dev.harmonic64MCG64;
-            // state ^= state >> 24;
-
-            var value = state;
-            value ^= value >> 36;
             value *%= dev.harmonic64MCG64;
-            value ^= value >> 24;
+            value ^= value >> 32;
             value *%= dev.harmonic64MCG64;
-            value ^= value >> 36;
+            value ^= value >> 32;
             value *%= dev.harmonic64MCG64;
-            value ^= value >> 24;
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 36;
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 24;
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 36;
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 24;
-            value *%= dev.harmonic64MCG64;
-
-            // buf[i] = state;
+            value ^= value >> 32;
             buf[i] = value;
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
