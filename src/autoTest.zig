@@ -10,6 +10,16 @@ const BoundedArray = std.BoundedArray;
 const rand = std.rand;
 const Random = rand.Random;
 
+// pub fn collapseRuns(
+//     comptime orders: u6,
+//     comptime runs: usize,
+//     results: TestResults(orders, runs),
+// ) TestResult(orders) {
+//     var result: TestResult(orders) = undefined;
+//     for (self.tallyArr) |*t, i| result[i] = try t.done(rng.random());
+//     return result;
+// }
+
 pub fn testPRNG(
     comptime prng: type,
     comptime orders: u6,
@@ -308,6 +318,10 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
 
 pub fn TestResults(comptime orders: u6, comptime runs: usize) type {
     return [orders]StringHashMap([runs]f64);
+}
+
+pub fn TestResult(comptime orders: u6) type {
+    return [orders]StringHashMap(f64);
 }
 
 /// Talies results from multiple test runs.

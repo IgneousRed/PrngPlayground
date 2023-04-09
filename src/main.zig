@@ -81,6 +81,7 @@ fn val(value: u32, i: usize) u32 {
     return if (value >> @intCast(u5, i) & 1 > 0) 1 << 31 else 0;
 }
 pub fn main() !void {
+
     // while (global < 32) {
     //     defer global += 1;
     //     var inputs: usize = 20;
@@ -141,16 +142,38 @@ pub fn main() !void {
     //     std.debug.print("{d:.2} ", .{v});
     // }
 
-    try testing();
+    // try testing();
     // try childTest();
     // drawPerm(mulRev8);
     // try testHash();
     // try testMCG64();
-    // permutationCheck(u16, perm16);
+    // try permutationCheck(u16, perm16);
     // time();
     // disassembly();
     // mulXshSearch();
     // try errorNo();
+}
+fn transitionTest(comptime T: type, comptime f: fn (T) T) !void {
+    const timeStart = std.time.timestamp();
+    var bitsSet = std.StaticBitSet(1 << @bitSizeOf(T)).initEmpty();
+    var i: T = 0;
+    if (blk: while (true) {
+        const index = f(i);
+        if (bitsSet.isSet(index)) {
+            break :blk false;
+        }
+        bitsSet.set(index);
+        i +%= 1;
+        if (i == 0) {
+            break :blk true;
+        }
+    }) {
+        std.debug.print("The function is a permutation!\n", .{});
+    } else {
+        std.debug.print("The function is NOT a permutation\n", .{});
+    }
+    const delta = std.time.timestamp() - timeStart;
+    std.debug.print("Running Time: {} sec\n", .{delta});
 }
 fn errorNo() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
@@ -253,31 +276,39 @@ fn testing() !void {
         "-tlmax",
         "99",
         // "-tlmaxonly",
-        "-multithreaded",
+        // "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
     // child.stdout_behavior = .Pipe;
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    const T = u64;
-    var state: T = 0;
-    var buf = [1]T{0} ** (1 << 16);
+    const T = u32;
+    var state: T = 1;
+    var buf = [1]u16{0} ** (1 << 16);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
 
-            state += 1;
-            var value: T = state;
+            // state += 1;
+            // var value: T = state;
 
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 32;
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 32;
-            value *%= dev.harmonic64MCG64;
-            value ^= value >> 32;
-            buf[i] = value;
+            // value *%= dev.harmonic64MCG64;
+            // value ^= value >> 32;
+            // value *%= dev.harmonic64MCG64;
+            // value ^= value >> 32;
+            // value *%= dev.harmonic64MCG64;
+            // value ^= value >> 32;
+            // buf[i] = value;
+
+            // Mul32Hi16         6.9e-19
+            // MulAdd32Lo16      4.3e-19
+            state *%= dev.harmonic32MCG32;
+            // state +%= dev.harmonic32MCG32;
+            state = @bitReverse(state);
+            // buf[i] = @truncate(u16, state);
+            buf[i] = @intCast(u16, state >> 16);
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }
@@ -372,25 +403,21 @@ fn testMCG64() !void {
         try stdOut.writeAll(std.mem.asBytes(&buf));
     }
 }
-fn isPermutation(comptime T: type, comptime f: fn (T) T) bool {
-    var bitsSet = std.DynamicBitSet.initEmpty(alloc, 1 << @bitSizeOf(T)) catch unreachable;
+fn permutationCheck(comptime T: type, comptime f: fn (T) T) !void {
+    const timeStart = std.time.timestamp();
+    var bitsSet = std.StaticBitSet(1 << @bitSizeOf(T)).initEmpty();
     var i: T = 0;
-    while (true) {
+    if (blk: while (true) {
         const index = f(i);
-        // std.debug.print("", .{});
         if (bitsSet.isSet(index)) {
-            return false;
+            break :blk false;
         }
         bitsSet.set(index);
         i +%= 1;
         if (i == 0) {
-            return true;
+            break :blk true;
         }
-    }
-}
-fn permutationCheck(comptime T: type, comptime f: fn (T) T) void {
-    const timeStart = std.time.timestamp();
-    if (isPermutation(T, f)) {
+    }) {
         std.debug.print("The function is a permutation!\n", .{});
     } else {
         std.debug.print("The function is NOT a permutation\n", .{});
