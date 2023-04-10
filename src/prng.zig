@@ -3,6 +3,28 @@ const lib = @import("lib.zig");
 const bits = @import("bits.zig");
 const dev = @import("prng_dev.zig");
 
+/// hash64 calculates a seemingly random u64 from bytes. Lower bits are mixed better,
+/// if possible put better entropy first.
+pub fn hash64(bytes: []const u8) u64 {
+    var result: u64 = bytes.len;
+    var bytesUsed: usize = 0;
+    while (bytesUsed < (bytes.len + 1) & ~@as(usize, 7)) {
+        const newBytes = bytesUsed + 8;
+        hash64Combine(&result, std.mem.readIntSliceNative(u64, bytes[bytesUsed..newBytes]));
+        bytesUsed = newBytes;
+    }
+    // if (bytesUsed < bytes.len) {
+    //     hash64Combine(&result, std.mem.bytesToValue(u64, bytes[bytesUsed..]));
+    // }
+    result *%= dev.harmonic64MCG64;
+    result = (result ^ result >> 24) *% dev.harmonic64MCG64;
+    // result = (result ^ result >> 32) *% dev.harmonic64MCG64;
+    return result ^ result >> 40;
+}
+fn hash64Combine(state: *u64, value: u64) void {
+    state.* = state.* *% dev.harmonic64LCG64 ^ (value ^ value >> 40);
+}
+
 /// Hash64 calculates a seemingly random u64 from multiple u64s.
 pub const Hash64 = struct {
     state: u64,
@@ -32,9 +54,9 @@ pub const Hash64 = struct {
 
 /// Returns a random u64 by hashing last output and current time.
 pub fn entropy64() u64 {
-    var hash64 = Hash64.init(entropy64State);
-    hash64.mix(@truncate(u64, @bitCast(u128, std.time.nanoTimestamp())));
-    entropy64State = hash64.done();
+    var a = Hash64.init(entropy64State);
+    a.mix(@truncate(u64, @bitCast(u128, std.time.nanoTimestamp())));
+    entropy64State = a.done();
     return entropy64State;
 }
 

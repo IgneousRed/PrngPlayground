@@ -10,24 +10,33 @@ const BoundedArray = std.BoundedArray;
 const rand = std.rand;
 const Random = rand.Random;
 
-// pub fn collapseRuns(
-//     comptime orders: u6,
-//     comptime runs: usize,
-//     results: TestResults(orders, runs),
-// ) TestResult(orders) {
-//     var result: TestResult(orders) = undefined;
-//     for (self.tallyArr) |*t, i| result[i] = try t.done(rng.random());
-//     return result;
-// }
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const alloc = gpa.allocator();
+
+pub fn collapseRuns(
+    comptime orders: u6,
+    comptime runs: usize,
+    results: TestResults(orders, runs), // [orders]StringHashMap([runs]f64)
+) TestResult(orders) {
+    var result: TestResult(orders) = undefined;
+    for (results) |v, i| {
+        result[i] = StringHashMap(f64).init(alloc);
+        var iter = v.iterator();
+        while (true) {
+            const pair = iter.next() orelse break;
+            v
+        }
+    }
+    return result;
+}
 
 pub fn testPRNG(
     comptime prng: type,
     comptime orders: u6,
     comptime runs: usize,
-    allocator: Allocator,
 ) !TestResults(orders, runs) {
     _ = prng;
-    var asd = try ASD(orders, runs).init(allocator);
+    var asd = try ASD(orders, runs).init(alloc);
     var i = runs;
     while (i > 0) {
         defer i -= 1;
@@ -55,8 +64,7 @@ fn fold(value: f64) f64 {
 }
 
 fn ASD(comptime orders: u6, comptime runs: usize) type {
-    return struct { // TODO: chect propper initialization
-        alloc: Allocator,
+    return struct {
 
         writeBuffer: [1 << 10]u64, // TODO: Size
         writeDone: bool,
@@ -65,14 +73,13 @@ fn ASD(comptime orders: u6, comptime runs: usize) type {
 
         parser: TestParser(orders, runs),
 
-        pub fn init(allocator: Allocator) !Self {
+        pub fn init() !Self {
             return Self{
-                .alloc = allocator,
                 .writeBuffer = undefined,
                 .writeDone = true,
                 .writeState = undefined,
                 .writer = undefined,
-                .parser = TestParser(orders, runs).init(allocator),
+                .parser = TestParser(orders, runs).init(),
             };
         }
 
@@ -159,10 +166,10 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
         readIndex: u16,
         reader: std.fs.File.Reader,
 
-        pub fn init(allocator: Allocator) Self {
+        pub fn init() Self {
             var arr: [orders]Tally(runs) = undefined;
             for (arr) |_, i| {
-                arr[i] = Tally(runs).init(allocator);
+                arr[i] = Tally(runs).init();
             }
             return Self{
                 .tallyArr = arr,
@@ -329,16 +336,16 @@ fn Tally(comptime runs: usize) type {
     return struct {
         map: StringHashMap(Array),
 
-        pub fn init(allocator: Allocator) Self {
+        pub fn init() Self {
             return Self{
-                .map = StringHashMap(Array).init(allocator),
+                .map = StringHashMap(Array).init(alloc),
             };
         }
 
         /// Tallies the test.
         pub fn note(self: *Self, name: []const u8, result: f64) !void {
             if (!self.map.contains(name)) {
-                const dupe = try self.map.allocator.dupe(u8, name);
+                const dupe = try alloc.dupe(u8, name);
                 try self.map.putNoClobber(dupe, Array.init(0) catch unreachable);
             }
             self.map.getPtr(name).?.appendAssumeCapacity(result);
@@ -346,7 +353,7 @@ fn Tally(comptime runs: usize) type {
 
         pub fn done(self: *Self, rng: Random) !StringHashMap([runs]f64) { // TODO: Slice > HashMap?
             defer self.map.deinit();
-            var result = StringHashMap([runs]f64).init(self.map.allocator);
+            var result = StringHashMap([runs]f64).init(alloc);
             var iter = self.map.iterator();
             while (true) {
                 const pair = iter.next() orelse break;

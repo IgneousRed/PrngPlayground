@@ -10,113 +10,25 @@ const math = std.math;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
 
-fn mulXsr64(value: u64) u64 {
-    var result = value *% 0xcb45348a28cb43bd;
-    return result ^ result >> 32;
-}
-
-fn mulRor64(value: u64) u64 {
-    var result = value *% 0xcb45348a28cb43bd;
-    return result ^ lib.ror64(result, 32);
-}
-
-fn perm32(value: u32) u32 {
-    return @bitReverse(value *% 5);
-}
-
-fn mulXsr8(value: u8) u8 {
-    var result = value;
-    result *%= 0x35;
-    result ^= result >> 4;
-    result *%= 0x35;
-    result ^= result >> 4;
-    return result;
-}
-
-fn mulRev8(value: u8) u8 {
-    var result = value;
-    result *%= 0x35;
-    result = @bitReverse(result);
-    result *%= 0x35;
-    result = @bitReverse(result);
-    return result;
-}
-
-fn perm16(value: u16) u16 {
-    // a = ror(a, b);
-    // a +%= f(b); (f doesn't need to be reversible)
-    // a -%= f(b);
-    // a ^= f(b);
-    // a *%= k; (k is odd)
-    // a +%= a << k;
-    // a -%= a << k;
-    // a ^= a << k;
-    // a ^= a >> k;
-    // a = @bitReverse(a);
-    var a = value;
-    a *%= a;
-    return a;
-}
-
-fn dist(a: f64, b: f64) f64 {
+// a = ror(a, b);
+// a +%= f(b); (f doesn't need to be reversible)
+// a -%= f(b);
+// a ^= f(b);
+// a *%= k; (k is odd)
+// a +%= a << k;
+// a -%= a << k;
+// a ^= a << k;
+// a ^= a >> k;
+// a = @bitReverse(a);
+fn avrDist(a: f64, b: f64) f64 {
     const avr = a + b;
     if (avr > 1) {
         return 1 - math.pow(f64, 2 - avr, 2) / 2;
     } else return math.pow(f64, avr, 2) / 2;
 }
-fn stateInit(value: u32) u32 {
-    return value;
-}
-var global: usize = 1;
-fn mixIn(state: u32, value: u32) u32 {
-    var v = value;
-    v ^= v >> 20; // Different comstant depending on where random bits are
-
-    var s = state *% dev.harmonic32MCG32 +% v;
-
-    s ^= s >> @intCast(u5, global); // 16 is NOT ideal constant (7: 32176653)
-    return s;
-}
-fn val(value: u32, i: usize) u32 {
-    return if (value >> @intCast(u5, i) & 1 > 0) 1 << 31 else 0;
-}
 pub fn main() !void {
-
-    // while (global < 32) {
-    //     defer global += 1;
-    //     var inputs: usize = 20;
-    //     while (inputs < 21) {
-    //         defer inputs += 1;
-    //         const shift = @as(u32, 1) << @intCast(u5, inputs);
-    //         var results = try alloc.alloc(u32, shift);
-    //         var config: u32 = 0;
-    //         while (config < shift) {
-    //             defer config += 1;
-    //             var state = stateInit(@intCast(u32, inputs));
-    //             // var state = stateInit(val(config, 0));
-    //             var i: usize = 0;
-    //             while (i < inputs) {
-    //                 defer i += 1;
-    //                 state = mixIn(state, val(config, i));
-    //             }
-    //             results[config] = state;
-    //         }
-    //         std.sort.sort(u32, results, {}, std.sort.asc(u32));
-    //         var dupes: usize = 0;
-    //         var i: usize = 1;
-    //         while (i < shift) {
-    //             defer i += 1;
-    //             if (results[i] == results[i - 1]) dupes += 1;
-    //         }
-    //         if (dupes > 0) {
-    //             const perc = @intToFloat(f64, dupes) / @intToFloat(f64, shift) * 100;
-    //             std.debug.print("Global {d:2}: {}({d}%)\n", .{ global, dupes, perc });
-    //         }
-    //     }
-    // }
-
-    // var q = try autoTest.testPRNG(u0, 3, 2, alloc);
-    // std.debug.print("{any}", .{q});
+    var q = try autoTest.testPRNG(u0, 3, 2, alloc);
+    std.debug.print("{any}", .{q});
     // _ = q;
 
     // const count = 16;
@@ -125,7 +37,7 @@ pub fn main() !void {
     // var i: usize = 0;
     // while (i < 1 << 24) {
     //     defer i += 1;
-    //     const val = dist(dist(rng.float64(), rng.float64()), rng.float64());
+    //     const val = avrDist(avrDist(rng.float64(), rng.float64()), rng.float64());
     //     buckets[@floatToInt(usize, (@floor(val * count)))] += 1;
     // }
     // var biggest: u30 = 0;
@@ -142,6 +54,10 @@ pub fn main() !void {
     //     std.debug.print("{d:.2} ", .{v});
     // }
 
+    // const b = lib.phiFraction(u128);
+    // std.debug.print("{b:0>128}, {}\n", .{ b, b }); // 0x9e3779b97f4a7c15f39cc0605cedc835
+
+    // try hashColisions();
     // try testing();
     // try childTest();
     // drawPerm(mulRev8);
@@ -152,6 +68,42 @@ pub fn main() !void {
     // disassembly();
     // mulXshSearch();
     // try errorNo();
+}
+fn hashColisions() !void {
+    var inputs: usize = 1;
+    while (inputs <= 24) {
+        defer inputs += 1;
+        const shift = @as(u32, 1) << @intCast(u5, inputs);
+        var results = try alloc.alloc(u32, shift);
+        var config: u32 = 0;
+        while (config < shift) {
+            defer config += 1;
+            var state = @intCast(u32, inputs);
+            var i: usize = 0;
+            while (i < inputs) {
+                defer i += 1;
+                var v: u32 = if (config >> @intCast(u5, i) & 1 > 0) 1 << 31 else 0;
+                v ^= v >> 20;
+
+                var s = state *% dev.harmonic32LCG32 +% v;
+
+                // s ^= s >> 7;
+                state = s;
+            }
+            results[config] = state;
+        }
+        std.sort.sort(u32, results, {}, std.sort.asc(u32));
+        var collisions: usize = 0;
+        var i: usize = 1;
+        while (i < shift) {
+            defer i += 1;
+            if (results[i] == results[i - 1]) collisions += 1;
+        }
+        if (collisions > 0) {
+            const perc = @intToFloat(f64, collisions) / @intToFloat(f64, shift) * 100;
+            std.debug.print("Inputs {d:2}: {}({d}%)\n", .{ inputs, collisions, perc });
+        }
+    }
 }
 fn transitionTest(comptime T: type, comptime f: fn (T) T) !void {
     const timeStart = std.time.timestamp();
@@ -276,7 +228,7 @@ fn testing() !void {
         "-tlmax",
         "99",
         // "-tlmaxonly",
-        // "-multithreaded",
+        "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
     // child.stdout_behavior = .Pipe;
@@ -284,14 +236,14 @@ fn testing() !void {
     const stdIn = child.stdin.?.writer();
 
     const T = u32;
-    var state: T = 1;
+    var state: T = 3;
     var buf = [1]u16{0} ** (1 << 16);
     while (true) {
         var i: usize = 0;
         while (i < buf.len) {
             defer i += 1;
 
-            // state += 1;
+            // defer state += 1;
             // var value: T = state;
 
             // value *%= dev.harmonic64MCG64;
@@ -302,13 +254,15 @@ fn testing() !void {
             // value ^= value >> 32;
             // buf[i] = value;
 
-            // Mul32Hi16         6.9e-19
-            // MulAdd32Lo16      4.3e-19
             state *%= dev.harmonic32MCG32;
-            // state +%= dev.harmonic32MCG32;
-            state = @bitReverse(state);
+            // state +%= dev.harmonic64MCG64;
+
+            // state = @bitReverse(state);
+            state ^= state >> 11;
+
             // buf[i] = @truncate(u16, state);
             buf[i] = @intCast(u16, state >> 16);
+            // buf[i] = bits.ror(32, state, 16);
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }
@@ -380,7 +334,7 @@ fn testHash() !void {
             while (rounds < 2) {
                 defer rounds += 1;
                 // result = mulXsr64(result);
-                result = mulRor64(result);
+                // result = mulRor64(result);
             }
             buf[i] = result;
         }

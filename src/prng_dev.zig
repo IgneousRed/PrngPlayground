@@ -61,3 +61,6 @@ pub const harmonic128MCG64 = 0xdefba91144f2b375;
 pub const harmonic128MCG128 = 0xaadec8c3186345282b4e141f3a1232d5;
 pub const harmonic128LCG67 = 0x77808d182e9136c35;
 pub const harmonic128LCG128 = 0xdb36357734e34abb0050d0761fcdfc15;
+pub const golden32 = 0x9e3779bd;
+pub const golden64 = 0x9e3779b97f4a7c15;
+pub const golden128 = 0x9e3779b97f4a7c15f39cc0605cedc835;
