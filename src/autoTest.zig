@@ -13,18 +13,42 @@ const Random = rand.Random;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
 
+// pub fn verdict
+
+pub fn summarize(comptime orders: u6, testResult: [orders][]SubTest) [orders]SubTest {
+    var result: [orders]SubTest = undefined;
+    for (testResult) |order, o| {
+        var iter = order.iterator(); // complain
+        var pair = iter.next().?;
+        var worstName = pair.key_ptr.*;
+        var worstResult = pair.value_ptr.*;
+        while (true) {
+            pair = iter.next() orelse break;
+            if (worstResult > pair.value_ptr.*) {
+                worstName = pair.key_ptr.*;
+                worstResult = pair.value_ptr.*;
+            }
+        }
+        result[o] = SubTest{ worstName, worstResult };
+    }
+    return result;
+}
 pub fn collapseRuns(
     comptime orders: u6,
     comptime runs: usize,
-    results: TestResults(orders, runs), // [orders]StringHashMap([runs]f64)
-) TestResult(orders) {
-    var result: TestResult(orders) = undefined;
-    for (results) |v, i| {
-        result[i] = StringHashMap(f64).init(alloc);
-        var iter = v.iterator();
+    results: [orders][][runs]SubTest,
+) ![orders][]SubTest {
+    var result: [orders][]SubTest = undefined;
+    for (results) |order, o| {
+        result[o] = StringHashMap(f64).init(alloc);
+        var iter = order.iterator();
         while (true) {
             const pair = iter.next() orelse break;
-            v
+            var sum: f64 = 0;
+            for (pair.value_ptr) |v| {
+                sum += v;
+            }
+            result[o].putNoClobber(try alloc.dupe(u8, pair.key_ptr), sum / pair.value_ptr.len);
         }
     }
     return result;
@@ -34,7 +58,7 @@ pub fn testPRNG(
     comptime prng: type,
     comptime orders: u6,
     comptime runs: usize,
-) !TestResults(orders, runs) {
+) ![orders][][runs]SubTest {
     _ = prng;
     var asd = try ASD(orders, runs).init(alloc);
     var i = runs;
@@ -65,7 +89,6 @@ fn fold(value: f64) f64 {
 
 fn ASD(comptime orders: u6, comptime runs: usize) type {
     return struct {
-
         writeBuffer: [1 << 10]u64, // TODO: Size
         writeDone: bool,
         writeState: u64, // TODO: Type
@@ -117,7 +140,7 @@ fn ASD(comptime orders: u6, comptime runs: usize) type {
             _ = try tester.kill();
         }
 
-        pub fn done(self: *Self) !TestResults(orders, runs) {
+        pub fn done(self: *Self) ![orders][][runs]SubTest {
             return self.parser.done();
         }
 
@@ -318,18 +341,15 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
             );
         }
 
-        const Results = TestResults(orders, runs);
+        const Results = [orders][][runs]SubTest;
         const Self = @This();
     };
 }
 
-pub fn TestResults(comptime orders: u6, comptime runs: usize) type {
-    return [orders]StringHashMap([runs]f64);
-}
-
-pub fn TestResult(comptime orders: u6) type {
-    return [orders]StringHashMap(f64);
-}
+pub const SubTest = struct {
+    name: []const u8,
+    result: f64,
+};
 
 /// Talies results from multiple test runs.
 fn Tally(comptime runs: usize) type {
