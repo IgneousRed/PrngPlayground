@@ -26,10 +26,95 @@ fn avrDist(a: f64, b: f64) f64 {
         return 1 - math.pow(f64, 2 - avr, 2) / 2;
     } else return math.pow(f64, avr, 2) / 2;
 }
+
+fn MyRng(comptime outBits: comptime_int) type {
+    return struct {
+        state: State,
+
+        pub fn init(asd: State) Self {
+            return Self{ .state = asd *% dev.oddPhiFraction(State) };
+        }
+
+        pub fn gen(self: *Self) Out {
+            self.state *%= dev.harmonic64LCG64;
+            self.state +%= dev.golden64;
+            return bits.highBits(outBits, self.state);
+        }
+
+        pub const State = bits.U(outBits * 2);
+        pub const Out = bits.U(outBits);
+
+        // -------------------------------- Internal --------------------------------
+
+        const Self = @This();
+    };
+}
+
+// timeMix: [0,3)
+// add: [0,4)
+// shift: [1,32)
+fn NonDeter(
+    comptime timeMix: usize,
+    comptime mulLCG: bool,
+    comptime add: usize,
+    comptime shift: u6,
+) type {
+    return struct {
+        state: Out,
+
+        pub fn init(asd: Out) Self {
+            return Self{ .state = asd *% dev.oddPhiFraction(Out) };
+        }
+
+        pub fn gen(self: *Self) Out {
+            const t = @truncate(Out, @intCast(u128, std.time.nanoTimestamp()));
+            switch (timeMix) {
+                0 => self.state ^= t,
+                1 => self.state +%= t,
+                2 => self.state -%= t,
+                3 => self.state = t -% self.state,
+                else => @compileError("Nop"),
+            }
+            self.state *%= if (mulLCG) dev.harmonic32LCG32 else dev.harmonic32MCG32;
+            self.state +%= switch (add) {
+                0 => 0,
+                1 => dev.harmonic64LCG64,
+                2 => dev.harmonic64MCG64,
+                3 => dev.oddPhiFraction(Out),
+                else => @compileError("Nop"),
+            };
+            self.state ^= self.state >> shift;
+            return self.state;
+        }
+
+        pub const Out = u32;
+
+        // -------------------------------- Internal --------------------------------
+
+        const Self = @This();
+    };
+}
+
+fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.Score {
+    const results = try autoTest.testPRNG(T, orders, runs);
+    const result = try autoTest.collapseRuns(orders, runs, results);
+    const summary = autoTest.summarize(orders, result);
+    const verdict = autoTest.verdict(orders, summary, true);
+    return autoTest.score(orders, verdict, std.math.inf_f64);
+}
+
 pub fn main() !void {
-    var q = try autoTest.testPRNG(u0, 3, 2, alloc);
-    std.debug.print("{any}", .{q});
-    // _ = q;
+    const timeMix = 0;
+    const mulLCG = false;
+    const add = 0;
+    const shift = 1;
+
+    _ = timeMix;
+    comptime var i: comptime_int = 0;
+    inline while (i < 4) {
+        std.debug.print("{}: {any}\n", .{ i, try score(NonDeter(i, mulLCG, add, shift), 20, 1) });
+        i += 1;
+    }
 
     // const count = 16;
     // var rng = prng.MCG64.new();

@@ -13,9 +13,39 @@ const Random = rand.Random;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
 
-// pub fn verdict
+pub const Score = struct {
+    order: u6,
+    fault: f64,
 
-pub fn summarize(comptime orders: u6, testResult: [orders][]SubTest) [orders]SubTest {
+    pub fn better(a: Score, b: Score) Score {
+        if (a.order == b.order) {
+            return if (a.fault < b.fault) a else b;
+        }
+        return if (a.order > b.order) a else b;
+    }
+};
+
+pub fn score(comptime orders: u6, verd: [orders]f64, threshold: f64) Score {
+    var result = Score{ .order = 0, .fault = verd[0] };
+    for (verd[1..]) |v, i| {
+        if (v >= threshold) break;
+        result = Score{ .order = @intCast(u6, i + 1), .fault = verd[i + 1] };
+    }
+    return result;
+}
+
+pub fn verdict(comptime orders: u6, summation: [orders]SubTest, hardMode: bool) [orders]f64 {
+    var result: [orders]f64 = undefined;
+    var sum: f64 = 0;
+    for (summation) |s, i| {
+        if (hardMode) sum *= 2;
+        sum += 1 / s.result;
+        result[i] = sum;
+    }
+    return result;
+}
+
+pub fn summarize(comptime orders: u6, testResult: [orders]StringHashMap(f64)) [orders]SubTest {
     var result: [orders]SubTest = undefined;
     for (testResult) |order, o| {
         var iter = order.iterator(); // complain
@@ -29,16 +59,16 @@ pub fn summarize(comptime orders: u6, testResult: [orders][]SubTest) [orders]Sub
                 worstResult = pair.value_ptr.*;
             }
         }
-        result[o] = SubTest{ worstName, worstResult };
+        result[o] = SubTest{ .name = worstName, .result = worstResult };
     }
     return result;
 }
 pub fn collapseRuns(
     comptime orders: u6,
     comptime runs: usize,
-    results: [orders][][runs]SubTest,
-) ![orders][]SubTest {
-    var result: [orders][]SubTest = undefined;
+    results: [orders]StringHashMap([runs]f64),
+) ![orders]StringHashMap(f64) {
+    var result: [orders]StringHashMap(f64) = undefined;
     for (results) |order, o| {
         result[o] = StringHashMap(f64).init(alloc);
         var iter = order.iterator();
@@ -48,23 +78,23 @@ pub fn collapseRuns(
             for (pair.value_ptr) |v| {
                 sum += v;
             }
-            result[o].putNoClobber(try alloc.dupe(u8, pair.key_ptr), sum / pair.value_ptr.len);
+            const key = try alloc.dupe(u8, pair.key_ptr.*);
+            try result[o].putNoClobber(key, sum / @intToFloat(f64, pair.value_ptr.len));
         }
     }
     return result;
 }
 
 pub fn testPRNG(
-    comptime prng: type,
+    comptime PRNG: type,
     comptime orders: u6,
     comptime runs: usize,
-) ![orders][][runs]SubTest {
-    _ = prng;
-    var asd = try ASD(orders, runs).init(alloc);
+) ![orders]StringHashMap([runs]f64) {
+    var asd = try ASD(PRNG, orders, runs).init();
     var i = runs;
     while (i > 0) {
-        defer i -= 1;
-        try asd.run(i);
+        i -= 1;
+        try asd.run(@intCast(PRNG.Out, i));
     }
     return try asd.done();
 }
@@ -87,11 +117,11 @@ fn fold(value: f64) f64 {
     return 1 - @fabs(value * 2 - 1);
 }
 
-fn ASD(comptime orders: u6, comptime runs: usize) type {
+fn ASD(comptime PRNG: type, comptime orders: u6, comptime runs: usize) type {
     return struct {
-        writeBuffer: [1 << 10]u64, // TODO: Size
-        writeDone: bool,
-        writeState: u64, // TODO: Type
+        writeBuffer: [1 << 10]PRNG.Out,
+        writeReady: bool,
+        writePRNG: PRNG,
         writer: std.fs.File.Writer,
 
         parser: TestParser(orders, runs),
@@ -99,15 +129,14 @@ fn ASD(comptime orders: u6, comptime runs: usize) type {
         pub fn init() !Self {
             return Self{
                 .writeBuffer = undefined,
-                .writeDone = true,
-                .writeState = undefined,
+                .writeReady = false,
+                .writePRNG = undefined,
                 .writer = undefined,
                 .parser = TestParser(orders, runs).init(),
             };
         }
 
-        pub fn run(self: *Self, i: usize) !void {
-            _ = i;
+        pub fn run(self: *Self, i: PRNG.Out) !void {
             var tester = std.ChildProcess.init(&[_][]const u8{
                 "/Users/gio/PractRand/RNG_test",
                 "stdin",
@@ -122,7 +151,7 @@ fn ASD(comptime orders: u6, comptime runs: usize) type {
                 "99",
                 "-tlmaxonly",
                 "-multithreaded",
-            }, self.alloc);
+            }, alloc);
 
             tester.stdin_behavior = .Pipe;
             tester.stdout_behavior = .Pipe;
@@ -132,7 +161,7 @@ fn ASD(comptime orders: u6, comptime runs: usize) type {
 
             self.parser.setup(tester.stdout.?.reader());
             self.writer = tester.stdin.?.writer();
-            self.writeState = 0;
+            self.writePRNG = PRNG.init(i);
 
             while (try self.parser.read()) {
                 self.write();
@@ -140,39 +169,21 @@ fn ASD(comptime orders: u6, comptime runs: usize) type {
             _ = try tester.kill();
         }
 
-        pub fn done(self: *Self) ![orders][][runs]SubTest {
+        pub fn done(self: *Self) ![orders]StringHashMap([runs]f64) {
             return self.parser.done();
         }
 
         // -------------------------------- Internal --------------------------------
 
         fn write(self: *Self) void {
-            if (self.writeDone) {
-                for (self.writeBuffer) |_, w| {
-                    var value = self.writeState;
-                    value ^= value >> 36;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 24;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 36;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 24;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 36;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 24;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 36;
-                    value *%= dev.harmonic64MCG64;
-                    value ^= value >> 24;
-                    value *%= dev.harmonic64MCG64;
-                    self.writeBuffer[w] = value;
-                    self.writeState += 1;
+            if (!self.writeReady) {
+                for (self.writeBuffer) |*wB| {
+                    wB.* = self.writePRNG.gen();
                 }
             }
-            self.writeDone = true;
+            self.writeReady = false;
             self.writer.writeAll(mem.asBytes(self.writeBuffer[0..])) catch {
-                self.writeDone = false;
+                self.writeReady = true;
             };
         }
 
@@ -233,10 +244,10 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
             return true;
         }
 
-        pub fn done(self: *Self) !Results {
+        pub fn done(self: *Self) ![orders]StringHashMap([runs]f64) {
             const time = @truncate(u64, @intCast(u128, std.time.nanoTimestamp()));
             var rng = rand.DefaultPrng.init(time);
-            var result: Results = undefined;
+            var result: [orders]StringHashMap([runs]f64) = undefined;
             for (self.tallyArr) |*t, i| result[i] = try t.done(rng.random());
             return result;
         }
@@ -296,6 +307,9 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
             while (line[i] != ' ') i += 1;
             const numberEnd = i;
 
+            std.debug.print("{s}\n", .{line});
+            // [Low4/32]DC7-9x1Bytes-1:indep     R>+99999  p =   nan     normal
+
             var trailingNumber: f64 = charToF64(line[numberEnd - 1]);
             var trailingDigitCount: f64 = 1;
 
@@ -341,15 +355,9 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
             );
         }
 
-        const Results = [orders][][runs]SubTest;
         const Self = @This();
     };
 }
-
-pub const SubTest = struct {
-    name: []const u8,
-    result: f64,
-};
 
 /// Talies results from multiple test runs.
 fn Tally(comptime runs: usize) type {
@@ -371,7 +379,7 @@ fn Tally(comptime runs: usize) type {
             self.map.getPtr(name).?.appendAssumeCapacity(result);
         }
 
-        pub fn done(self: *Self, rng: Random) !StringHashMap([runs]f64) { // TODO: Slice > HashMap?
+        pub fn done(self: *Self, rng: Random) !StringHashMap([runs]f64) {
             defer self.map.deinit();
             var result = StringHashMap([runs]f64).init(alloc);
             var iter = self.map.iterator();
@@ -394,3 +402,8 @@ fn Tally(comptime runs: usize) type {
         const Self = @This();
     };
 }
+
+pub const SubTest = struct {
+    name: []const u8,
+    result: f64,
+};
