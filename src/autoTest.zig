@@ -91,9 +91,9 @@ pub fn testPRNG(
     comptime runs: usize,
 ) ![orders]StringHashMap([runs]f64) {
     var asd = try ASD(PRNG, orders, runs).init();
-    var i = runs;
-    while (i > 0) {
-        i -= 1;
+    var i: usize = 0;
+    while (i < runs) {
+        defer i += 1;
         try asd.run(@intCast(PRNG.Out, i));
     }
     return try asd.done();
@@ -306,11 +306,14 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
             // Find number end
             while (line[i] != ' ') i += 1;
             const numberEnd = i;
+            const trailingChar = line[numberEnd - 1];
 
-            std.debug.print("{s}\n", .{line});
-            // [Low4/32]DC7-9x1Bytes-1:indep     R>+99999  p =   nan     normal
+            // If p == "nan"
+            if (trailingChar == 'n') {
+                return try self.tally.note(testName, 0.0);
+            }
 
-            var trailingNumber: f64 = charToF64(line[numberEnd - 1]);
+            var trailingNumber: f64 = charToF64(trailingChar);
             var trailingDigitCount: f64 = 1;
 
             // Skip ' ' and last digit
@@ -319,7 +322,8 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
 
             // Fill trailingNumber
             while (charIsDigit(trailingNumberChar)) {
-                trailingNumber += charToF64(trailingNumberChar) * math.pow(f64, 10, trailingDigitCount);
+                const exp = math.pow(f64, 10, trailingDigitCount);
+                trailingNumber += charToF64(trailingNumberChar) * exp;
                 trailingDigitCount += 1;
                 trailingNumberIndex -= 1;
                 trailingNumberChar = line[trailingNumberIndex];
@@ -372,6 +376,7 @@ fn Tally(comptime runs: usize) type {
 
         /// Tallies the test.
         pub fn note(self: *Self, name: []const u8, result: f64) !void {
+            // if (result < 0.00001) std.debug.print("{s}: {}\n", .{ name, result });
             if (!self.map.contains(name)) {
                 const dupe = try alloc.dupe(u8, name);
                 try self.map.putNoClobber(dupe, Array.init(0) catch unreachable);
@@ -407,3 +412,5 @@ pub const SubTest = struct {
     name: []const u8,
     result: f64,
 };
+
+pub fn testRNG() !void {}
