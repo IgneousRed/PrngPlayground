@@ -114,6 +114,7 @@ fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.
 }
 
 pub fn main() !void {
+    // std.debug.print("{}\n", .{try autoTest.testRNG(MyRng(64), 10, 2, 1 << (1 << 5))});
     // std.debug.print("{}", .{1 << (1 << 5)});
 
     // const timeMix = 3;
@@ -139,7 +140,7 @@ fn testing() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
-        "-a",
+        // "-a",
         "-tf",
         "2",
         "-te",
@@ -175,15 +176,14 @@ fn testing() !void {
             // value ^= value >> 32;
             // buf[i] = value;
 
-            state *%= dev.harmonic32MCG32;
-            // state +%= dev.harmonic64MCG64;
+            state *%= dev.harmonic32LCG32;
+            state +%= dev.harmonic32MCG32;
 
             // state = @bitReverse(state);
-            state ^= state >> 11;
+            state ^= state >> 23;
 
             // buf[i] = @truncate(u16, state);
             buf[i] = @intCast(u16, state >> 16);
-            // buf[i] = bits.ror(32, state, 16);
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }

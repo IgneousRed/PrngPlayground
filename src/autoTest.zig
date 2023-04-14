@@ -376,7 +376,6 @@ fn Tally(comptime runs: usize) type {
 
         /// Tallies the test.
         pub fn note(self: *Self, name: []const u8, result: f64) !void {
-            // if (result < 0.00001) std.debug.print("{s}: {}\n", .{ name, result });
             if (!self.map.contains(name)) {
                 const dupe = try alloc.dupe(u8, name);
                 try self.map.putNoClobber(dupe, Array.init(0) catch unreachable);
@@ -419,8 +418,11 @@ pub fn testRNG(
     comptime runs: usize,
     comptime threshold: f64,
 ) !Score {
-    var runResult: [runs]u8 = undefined;
-    for (runResult) |*runRes, r| {
+    _ = threshold;
+    var runResults: [runs]BoundedArray(StringHashMap(f64), orders) = undefined;
+    for (runResults) |*runResult, r| {
+        runResult.* = BoundedArray(StringHashMap(f64), orders){};
+
         var tester = std.ChildProcess.init(&[_][]const u8{
             "/Users/gio/PractRand/RNG_test",
             "stdin",
@@ -445,10 +447,8 @@ pub fn testRNG(
 
         const reader = tester.stdout.?.reader();
         var readBuffer: [1 << 16]u8 = undefined; // Size
-        var readIndex: usize = 0;
-        var orderSubTests: BoundedArray(StringHashMap(f64), orders) = undefined;
-        var subTests: *StringHashMap(f64) = null;
-        var tallyIndex = -%@as(usize, 1);
+        var readIndex: u16 = 0;
+        var subTests: *StringHashMap(f64) = undefined;
         const writer = tester.stdin.?.writer();
         var writeReady = false;
         var writeBuffer: [1 << 10]RNG.Out = undefined; // Size
@@ -462,24 +462,109 @@ pub fn testRNG(
 
             // Parse readBuffer
             while (true) {
-                if (readBuffer[readIndex] == '\n') {
-                    // Parse line
-                    var line = readBuffer[lineStart..readIndex];
+                var lineRead = true;
+                lineParse: {
+                    // If line not done
+                    if (readBuffer[readIndex] != '\n') {
+                        lineRead = false;
+                        break :lineParse;
+                    }
+                    const line = readBuffer[lineStart..readIndex];
 
                     // If line is empty
                     if (line.len == 0) {
-                        if (orderSubTests.len < orders) {
-                            subTests = orderSubTests.addOneAssumeCapacity();
+                        if (runResult.len < orders) {
+                            subTests = runResult.addOneAssumeCapacity();
+                            subTests.* = StringHashMap(f64).init(alloc);
+                            break :lineParse;
                         } else break :testing false;
-                    } else if (mem.eql(u8, line[0..2], "  ") and !mem.eql(u8, line[2..11], "Test Name")) {
-                        // Ignore if un-indented or table header
-                        line = line[2..];
-                        try tallyResult(line[2..]);
                     }
 
-                    // if (try anyLine(readBuffer[lineStart..readIndex])) break :blk false;
-                    lineStart = readIndex + 1;
+                    // Ignore if un-indented or table header
+                    if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) {
+                        break :lineParse;
+                    }
+
+                    // Skip indentation
+                    var l: usize = 2;
+
+                    // Find test name
+                    while (line[l] != ' ') l += 1;
+                    const testName = line[2..l];
+
+                    // Find 'p'
+                    while (line[l] != 'p') {
+                        defer l += 1;
+
+                        // When instead of 'p' there is "fail" or "pass"
+                        if (line[l] == '"') {
+                            const value: f64 = if (line[l + 1] == 'f') 0 else 0.5;
+                            try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
+                        }
+                    }
+
+                    // Jump after '='
+                    l += 3;
+
+                    // Find number start
+                    while (line[l] == ' ') l += 1;
+
+                    // Find number end
+                    while (line[l] != ' ') l += 1;
+                    const trailingChar = line[l - 1];
+
+                    // If p == "nan"
+                    if (trailingChar == 'n') {
+                        try subTests.putNoClobber(try alloc.dupe(u8, testName), math.nan_f64);
+                    }
+
+                    var trailingNumber: f64 = charToF64(trailingChar);
+                    var trailingDigitCount: f64 = 1;
+
+                    // Skip ' ' and last digit
+                    l -= 2;
+                    var trailingNumberChar = line[l];
+
+                    // Fill trailingNumber
+                    while (charIsDigit(trailingNumberChar)) {
+                        const exp = math.pow(f64, 10, trailingDigitCount);
+                        trailingNumber += charToF64(trailingNumberChar) * exp;
+                        trailingDigitCount += 1;
+                        l -= 1;
+                        trailingNumberChar = line[l];
+                    }
+
+                    const nonDigitIndex = l;
+                    const nonDigitChar = line[nonDigitIndex];
+
+                    // If p == '0' or '1'
+                    if (nonDigitChar == ' ') {
+                        const value = if (trailingNumber == 1) @as(f64, -0.0) else @as(f64, 0.0);
+                        try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
+                    }
+
+                    // If p == normal value: "0.188"
+                    if (nonDigitChar == '.') {
+                        var value = trailingNumber * math.pow(f64, 10, -trailingDigitCount);
+                        if (value >= 0.5) value -= 1.0;
+                        try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
+                    }
+
+                    // p must be in scientific notation
+                    var coefficient = charToF64(line[nonDigitIndex - 2]);
+                    var symbolIndex = nonDigitIndex - 3;
+
+                    // If coefficient has fraction: "2.3e-4" or "1-2.7e-3"
+                    if (line[symbolIndex] == '.') {
+                        coefficient = charToF64(line[nonDigitIndex - 4]) + coefficient / 10;
+                        symbolIndex -= 2;
+                    }
+
+                    var value = coefficient * math.pow(f64, 10, -trailingNumber);
+                    if (line[symbolIndex] == '-') value = -value;
+                    try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
                 }
+                if (lineRead) lineStart = readIndex + 1;
                 readIndex += 1;
                 if (readIndex == readLen) break;
             }
@@ -487,13 +572,11 @@ pub fn testRNG(
             // Make space
             mem.copy(u8, readBuffer[0..], readBuffer[lineStart..readLen]);
             readIndex -= lineStart;
-            break :blk true;
+            break :testing true;
         }) {
-            if (!writeReady) {
-                for (writeBuffer) |*w| {
-                    w.* = writeRNG.gen();
-                }
-            }
+            if (!writeReady) for (writeBuffer) |*w| {
+                w.* = writeRNG.gen();
+            };
             writeReady = false;
             writer.writeAll(mem.asBytes(writeBuffer[0..])) catch {
                 writeReady = true;
@@ -501,4 +584,5 @@ pub fn testRNG(
         }
         _ = try tester.kill();
     }
+    return .{ .order = 0, .fault = 0 };
 }
