@@ -114,6 +114,8 @@ fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.
 }
 
 pub fn main() !void {
+    // std.debug.print("{}", .{1 << (1 << 5)});
+
     // const timeMix = 3;
     // const mulLCG = false;
     // const add = 0;
@@ -127,7 +129,7 @@ pub fn main() !void {
     //     i += 1;
     // }
 
-    // try testing();
+    try testing();
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
@@ -137,7 +139,7 @@ fn testing() !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
-        // "-a",
+        "-a",
         "-tf",
         "2",
         "-te",

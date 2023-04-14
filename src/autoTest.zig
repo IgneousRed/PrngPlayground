@@ -413,4 +413,92 @@ pub const SubTest = struct {
     result: f64,
 };
 
-pub fn testRNG() !void {}
+pub fn testRNG(
+    comptime RNG: type,
+    comptime orders: u6,
+    comptime runs: usize,
+    comptime threshold: f64,
+) !Score {
+    var runResult: [runs]u8 = undefined;
+    for (runResult) |*runRes, r| {
+        var tester = std.ChildProcess.init(&[_][]const u8{
+            "/Users/gio/PractRand/RNG_test",
+            "stdin",
+            "-a",
+            "-tf",
+            "2",
+            "-te",
+            "1",
+            "-tlmin",
+            "10",
+            "-tlmax",
+            "99",
+            "-tlmaxonly",
+            "-multithreaded",
+        }, alloc);
+
+        tester.stdin_behavior = .Pipe;
+        tester.stdout_behavior = .Pipe;
+        try tester.spawn();
+        _ = try os.fcntl(tester.stdin.?.handle, os.F.SETFL, os.O.NONBLOCK);
+        _ = try os.fcntl(tester.stdout.?.handle, os.F.SETFL, os.O.NONBLOCK);
+
+        const reader = tester.stdout.?.reader();
+        var readBuffer: [1 << 16]u8 = undefined; // Size
+        var readIndex: usize = 0;
+        var orderSubTests: BoundedArray(StringHashMap(f64), orders) = undefined;
+        var subTests: *StringHashMap(f64) = null;
+        var tallyIndex = -%@as(usize, 1);
+        const writer = tester.stdin.?.writer();
+        var writeReady = false;
+        var writeBuffer: [1 << 10]RNG.Out = undefined; // Size
+        var writeRNG = RNG.init(r);
+        while (testing: {
+            // Fill readBuffer
+            var readCount = reader.read(readBuffer[readIndex..]) catch 0;
+            if (readCount == 0) break :testing true;
+            const readLen = readIndex + @intCast(u16, readCount);
+            var lineStart: u16 = 0;
+
+            // Parse readBuffer
+            while (true) {
+                if (readBuffer[readIndex] == '\n') {
+                    // Parse line
+                    var line = readBuffer[lineStart..readIndex];
+
+                    // If line is empty
+                    if (line.len == 0) {
+                        if (orderSubTests.len < orders) {
+                            subTests = orderSubTests.addOneAssumeCapacity();
+                        } else break :testing false;
+                    } else if (mem.eql(u8, line[0..2], "  ") and !mem.eql(u8, line[2..11], "Test Name")) {
+                        // Ignore if un-indented or table header
+                        line = line[2..];
+                        try tallyResult(line[2..]);
+                    }
+
+                    // if (try anyLine(readBuffer[lineStart..readIndex])) break :blk false;
+                    lineStart = readIndex + 1;
+                }
+                readIndex += 1;
+                if (readIndex == readLen) break;
+            }
+
+            // Make space
+            mem.copy(u8, readBuffer[0..], readBuffer[lineStart..readLen]);
+            readIndex -= lineStart;
+            break :blk true;
+        }) {
+            if (!writeReady) {
+                for (writeBuffer) |*w| {
+                    w.* = writeRNG.gen();
+                }
+            }
+            writeReady = false;
+            writer.writeAll(mem.asBytes(writeBuffer[0..])) catch {
+                writeReady = true;
+            };
+        }
+        _ = try tester.kill();
+    }
+}
