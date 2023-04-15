@@ -551,6 +551,7 @@ pub fn testRNG(
                     }
 
                     // p must be in scientific notation
+                    std.debug.print("{s}\n", .{line});
                     var coefficient = charToF64(line[nonDigitIndex - 2]);
                     var symbolIndex = nonDigitIndex - 3;
 

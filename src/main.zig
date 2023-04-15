@@ -114,7 +114,7 @@ fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.
 }
 
 pub fn main() !void {
-    // std.debug.print("{}\n", .{try autoTest.testRNG(MyRng(64), 10, 2, 1 << (1 << 5))});
+    std.debug.print("{}\n", .{try autoTest.testRNG(MyRng(64), 10, 2, 1 << (1 << 5))});
     // std.debug.print("{}", .{1 << (1 << 5)});
 
     // const timeMix = 3;
@@ -130,7 +130,7 @@ pub fn main() !void {
     //     i += 1;
     // }
 
-    try testing();
+    // try testing();
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
