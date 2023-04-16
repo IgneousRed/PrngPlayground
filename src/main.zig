@@ -65,12 +65,12 @@ fn NonDeter(
     return struct {
         state: Out,
 
-        pub fn init(asd: Out) Self {
-            return Self{ .state = asd *% dev.oddPhiFraction(Out) };
+        pub fn init(seed: Out) Self {
+            return Self{ .state = seed *% dev.oddPhiFraction(Out) };
         }
 
         pub fn gen(self: *Self) Out {
-            const t = @truncate(Out, @intCast(u128, std.time.nanoTimestamp()));
+            const t = @truncate(Out, @divTrunc(@intCast(u128, std.time.nanoTimestamp()), 1000));
             switch (timeMix) {
                 0 => self.state ^= t,
                 1 => self.state +%= t,
@@ -114,19 +114,52 @@ fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.
 }
 
 pub fn main() !void {
-    std.debug.print("{}\n", .{try autoTest.testRNG(MyRng(64), 10, 2, 1 << (1 << 5))});
-    // std.debug.print("{}", .{1 << (1 << 5)});
+    const timeMix = 1; // 2
+    const mulLCG = true; // false
+    const add = 3; // 1
+    const addMix = 0; // 1
+    const shift = 21; // 21
 
-    // const timeMix = 3;
-    // const mulLCG = false;
-    // const add = 0;
-    // const addMix = 3;
-    // const shift = 0;
+    std.debug.print("timeMix:\n", .{});
+    _ = timeMix;
+    comptime var i: comptime_int = 0;
+    inline while (i < 4) {
+        const result = try autoTest.testRNG(NonDeter(i, mulLCG, add, addMix, shift), 99, 1 << (1 << 5), alloc);
+        std.debug.print("{}: {any}\n", .{ i, result });
+        i += 1;
+    }
 
-    // _ = timeMix;
+    // std.debug.print("mulLCG:\n", .{});
+    // _ = mulLCG;
+    // var result = try autoTest.testRNG(NonDeter(timeMix, false, add, addMix, shift), 99, 1 << (1 << 5), alloc);
+    // std.debug.print("false: {any}\n", .{result});
+    // result = try autoTest.testRNG(NonDeter(timeMix, true, add, addMix, shift), 99, 1 << (1 << 5), alloc);
+    // std.debug.print("true: {any}\n", .{result});
+
+    // std.debug.print("add:\n", .{});
+    // _ = add;
+    // comptime var i: comptime_int = 1;
+    // inline while (i < 4) {
+    //     const result = try autoTest.testRNG(NonDeter(timeMix, mulLCG, i, addMix, shift), 99, 1 << (1 << 5), alloc);
+    //     std.debug.print("{}: {any}\n", .{ i, result });
+    //     i += 1;
+    // }
+
+    // std.debug.print("addMix:\n", .{});
+    // _ = addMix;
     // comptime var i: comptime_int = 0;
     // inline while (i < 4) {
-    //     std.debug.print("{}: {any}\n", .{ i, try score(NonDeter(i, mulLCG, add, addMix, shift), 2, 3) });
+    //     const result = try autoTest.testRNG(NonDeter(timeMix, mulLCG, add, i, shift), 99, 1 << (1 << 5), alloc);
+    //     std.debug.print("{}: {any}\n", .{ i, result });
+    //     i += 1;
+    // }
+
+    // std.debug.print("shift:\n", .{});
+    // _ = shift;
+    // comptime var i: comptime_int = 1;
+    // inline while (i < 64) {
+    //     const result = try autoTest.testRNG(NonDeter(timeMix, mulLCG, add, addMix, i), 99, 1 << (1 << 5), alloc);
+    //     std.debug.print("{}: {any}\n", .{ i, result });
     //     i += 1;
     // }
 
@@ -153,7 +186,6 @@ fn testing() !void {
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
-    // child.stdout_behavior = .Pipe;
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 

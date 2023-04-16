@@ -10,133 +10,46 @@ const BoundedArray = std.BoundedArray;
 const rand = std.rand;
 const Random = rand.Random;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const alloc = gpa.allocator();
+pub fn testRNG(
+    comptime RNG: type,
+    comptime orders: usize,
+    comptime threshold: f64,
+    // comptime runs: usize,
+    allocator: Allocator,
+) !Score {
+    if (orders == 0) return Score{ .order = 0, .fault = math.inf_f64 };
 
-pub const Score = struct {
-    order: u6,
-    fault: f64,
-
-    pub fn better(a: Score, b: Score) Score {
-        if (a.order == b.order) {
-            return if (a.fault < b.fault) a else b;
-        }
-        return if (a.order > b.order) a else b;
-    }
-};
-
-pub fn score(comptime orders: u6, verd: [orders]f64, threshold: f64) Score {
-    var result = Score{ .order = 0, .fault = verd[0] };
-    for (verd[1..]) |v, i| {
-        if (v >= threshold) break;
-        result = Score{ .order = @intCast(u6, i + 1), .fault = verd[i + 1] };
-    }
-    return result;
-}
-
-pub fn verdict(comptime orders: u6, summation: [orders]SubTest, hardMode: bool) [orders]f64 {
-    var result: [orders]f64 = undefined;
+    var driver = try TestDriver(RNG).init(0, allocator);
+    defer driver.deinit();
+    var fault = 1 / @fabs((try driver.reportWorst()).result);
+    if (fault >= threshold) return Score{ .order = 0, .fault = fault };
     var sum: f64 = 0;
-    for (summation) |s, i| {
-        if (hardMode) sum *= 2;
-        sum += 1 / s.result;
-        result[i] = sum;
+    var o: usize = 1;
+    while (o < orders) {
+        defer o += 1;
+        fault = 1 / @fabs((try driver.reportWorst()).result);
+        if (sum + fault >= threshold) {
+            break;
+        } else sum += fault;
     }
-    return result;
+    return Score{ .order = o - 1, .fault = sum };
 }
 
-pub fn summarize(comptime orders: u6, testResult: [orders]StringHashMap(f64)) [orders]SubTest {
-    var result: [orders]SubTest = undefined;
-    for (testResult) |order, o| {
-        var iter = order.iterator(); // complain
-        var pair = iter.next().?;
-        var worstName = pair.key_ptr.*;
-        var worstResult = pair.value_ptr.*;
-        while (true) {
-            pair = iter.next() orelse break;
-            if (worstResult > pair.value_ptr.*) {
-                worstName = pair.key_ptr.*;
-                worstResult = pair.value_ptr.*;
-            }
-        }
-        result[o] = SubTest{ .name = worstName, .result = worstResult };
-    }
-    return result;
-}
-pub fn collapseRuns(
-    comptime orders: u6,
-    comptime runs: usize,
-    results: [orders]StringHashMap([runs]f64),
-) ![orders]StringHashMap(f64) {
-    var result: [orders]StringHashMap(f64) = undefined;
-    for (results) |order, o| {
-        result[o] = StringHashMap(f64).init(alloc);
-        var iter = order.iterator();
-        while (true) {
-            const pair = iter.next() orelse break;
-            var sum: f64 = 0;
-            for (pair.value_ptr) |v| {
-                sum += v;
-            }
-            const key = try alloc.dupe(u8, pair.key_ptr.*);
-            try result[o].putNoClobber(key, sum / @intToFloat(f64, pair.value_ptr.len));
-        }
-    }
-    return result;
-}
-
-pub fn testPRNG(
-    comptime PRNG: type,
-    comptime orders: u6,
-    comptime runs: usize,
-) ![orders]StringHashMap([runs]f64) {
-    var asd = try ASD(PRNG, orders, runs).init();
-    var i: usize = 0;
-    while (i < runs) {
-        defer i += 1;
-        try asd.run(@intCast(PRNG.Out, i));
-    }
-    return try asd.done();
-}
-
-fn charIsDigit(char: u8) bool {
-    return char >= '0' and char <= '9';
-}
-
-fn charToUsize(char: u8) usize {
-    debug.assert(charIsDigit(char));
-    return @intCast(usize, char - '0');
-}
-
-fn charToF64(char: u8) f64 {
-    debug.assert(charIsDigit(char));
-    return @intToFloat(f64, char - '0');
-}
-
-fn fold(value: f64) f64 {
-    return 1 - @fabs(value * 2 - 1);
-}
-
-fn ASD(comptime PRNG: type, comptime orders: u6, comptime runs: usize) type {
+fn TestDriver(comptime RNG: type) type {
     return struct {
-        writeBuffer: [1 << 10]PRNG.Out,
-        writeReady: bool,
-        writePRNG: PRNG,
+        rng: RNG,
+        tester: std.ChildProcess,
+        reader: std.fs.File.Reader,
         writer: std.fs.File.Writer,
+        readBuffer: []u8,
+        writeBuffer: []RNG.Out,
+        alloc: Allocator,
 
-        parser: TestParser(orders, runs),
+        readIndex: u16 = 0, // TODO: Refactor
+        writeReady: bool = false,
+        subTests: SubTests = undefined,
 
-        pub fn init() !Self {
-            return Self{
-                .writeBuffer = undefined,
-                .writeReady = false,
-                .writePRNG = undefined,
-                .writer = undefined,
-                .parser = TestParser(orders, runs).init(),
-            };
-        }
-
-        pub fn run(self: *Self, i: PRNG.Out) !void {
+        pub fn init(testSeed: usize, allocator: Allocator) !Self {
             var tester = std.ChildProcess.init(&[_][]const u8{
                 "/Users/gio/PractRand/RNG_test",
                 "stdin",
@@ -151,91 +64,164 @@ fn ASD(comptime PRNG: type, comptime orders: u6, comptime runs: usize) type {
                 "99",
                 "-tlmaxonly",
                 "-multithreaded",
-            }, alloc);
-
+            }, allocator);
             tester.stdin_behavior = .Pipe;
             tester.stdout_behavior = .Pipe;
             try tester.spawn();
             _ = try os.fcntl(tester.stdin.?.handle, os.F.SETFL, os.O.NONBLOCK);
             _ = try os.fcntl(tester.stdout.?.handle, os.F.SETFL, os.O.NONBLOCK);
 
-            self.parser.setup(tester.stdout.?.reader());
-            self.writer = tester.stdin.?.writer();
-            self.writePRNG = PRNG.init(i);
-
-            while (try self.parser.read()) {
-                self.write();
-            }
-            _ = try tester.kill();
-        }
-
-        pub fn done(self: *Self) ![orders]StringHashMap([runs]f64) {
-            return self.parser.done();
-        }
-
-        // -------------------------------- Internal --------------------------------
-
-        fn write(self: *Self) void {
-            if (!self.writeReady) {
-                for (self.writeBuffer) |*wB| {
-                    wB.* = self.writePRNG.gen();
-                }
-            }
-            self.writeReady = false;
-            self.writer.writeAll(mem.asBytes(self.writeBuffer[0..])) catch {
-                self.writeReady = true;
-            };
-        }
-
-        const Self = @This();
-    };
-}
-
-fn TestParser(comptime orders: u6, comptime runs: usize) type {
-    return struct {
-        tallyArr: [orders]Tally(runs),
-        tallyIndex: usize,
-        tally: *Tally(runs),
-        readBuffer: [1 << 16]u8,
-        readIndex: u16,
-        reader: std.fs.File.Reader,
-
-        pub fn init() Self {
-            var arr: [orders]Tally(runs) = undefined;
-            for (arr) |_, i| {
-                arr[i] = Tally(runs).init();
-            }
             return Self{
-                .tallyArr = arr,
-                .tallyIndex = undefined,
-                .tally = undefined,
-                .readBuffer = undefined,
-                .readIndex = undefined,
-                .reader = undefined,
+                .rng = RNG.init(testSeed),
+                .tester = tester,
+                .reader = tester.stdout.?.reader(),
+                .writer = tester.stdin.?.writer(),
+                .readBuffer = try allocator.alloc(u8, 1 << 20),
+                .writeBuffer = try allocator.alloc(RNG.Out, 1 << 16),
+                .alloc = allocator,
             };
         }
 
-        pub fn setup(self: *Self, reader: std.fs.File.Reader) void {
-            self.tallyIndex = -%@as(usize, 1);
-            self.readIndex = 0;
-            self.reader = reader;
+        pub fn reportWorst(self: *Self) !SubTest {
+            defer self.subTests.deinit();
+            var iter = (try self.reportAll()).iterator();
+            var worst = iter.next() orelse unreachable;
+            while (true) {
+                const pair = iter.next() orelse break;
+                if (@fabs(pair.value_ptr.*) < @fabs(worst.value_ptr.*)) worst = pair;
+            }
+            return SubTest{ .name = try self.alloc.dupe(u8, worst.key_ptr.*), .result = worst.value_ptr.* };
         }
 
-        pub fn read(self: *Self) !bool {
-            // Fill self.readBuffer
+        pub fn reportAll(self: *Self) !SubTests {
+            self.subTests = SubTests.init(self.alloc);
+            while (try self.read()) {
+                if (!self.writeReady) for (self.writeBuffer) |*w| {
+                    w.* = self.rng.gen();
+                };
+                self.writeReady = false;
+                self.writer.writeAll(mem.sliceAsBytes(self.writeBuffer)) catch {
+                    self.writeReady = true;
+                };
+            }
+            return self.subTests;
+        }
+
+        fn read(self: *Self) !bool {
             var readCount = self.reader.read(self.readBuffer[self.readIndex..]) catch 0;
             if (readCount == 0) return true;
             const readLen = self.readIndex + @intCast(u16, readCount);
             var lineStart: u16 = 0;
 
-            // Parse self.readBuffer
-            while (true) {
-                if (self.readBuffer[self.readIndex] == '\n') {
-                    if (try self.anyLine(self.readBuffer[lineStart..self.readIndex])) return false;
-                    lineStart = self.readIndex + 1;
+            // Parse readBuffer
+            while (self.readIndex < readLen) {
+                var lineRead = true;
+                defer {
+                    self.readIndex += 1;
+                    if (lineRead) lineStart = self.readIndex;
                 }
-                self.readIndex += 1;
-                if (self.readIndex == readLen) break;
+                // If line not done
+                if (self.readBuffer[self.readIndex] != '\n') {
+                    lineRead = false;
+                    continue;
+                }
+                const line = self.readBuffer[lineStart..self.readIndex];
+
+                // If line is empty
+                if (line.len == 0) {
+                    if (self.subTests.count() == 0) continue;
+                    self.readIndex += 1;
+                    if (lineRead) lineStart = self.readIndex; // TODO: Refactor
+                    return false;
+                }
+
+                // Ignore if un-indented or table header
+                if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) {
+                    continue;
+                }
+
+                // Skip indentation
+                var l: usize = 2;
+
+                // Find test name
+                while (line[l] != ' ') l += 1;
+                const testName = line[2..l];
+
+                // Find 'p'
+                while (line[l] != 'p') {
+                    defer l += 1;
+
+                    // When instead of 'p' there is "fail" or "pass"
+                    if (line[l] == '"') {
+                        const value: f64 = if (line[l + 1] == 'f') 0 else 0.5;
+                        try self.subTests.putNoClobber(try self.alloc.dupe(u8, testName), value);
+                        continue;
+                    }
+                }
+
+                // Jump after '='
+                l += 3;
+
+                // Find number start
+                while (line[l] == ' ') l += 1;
+
+                // Find number end
+                while (line[l] != ' ') l += 1;
+                const trailingChar = line[l - 1];
+
+                // If p == "nan"
+                if (trailingChar == 'n') {
+                    try self.subTests.putNoClobber(try self.alloc.dupe(u8, testName), math.nan_f64);
+                    continue;
+                }
+
+                var trailingNumber: f64 = charToF64(trailingChar);
+                var trailingDigitCount: f64 = 1;
+
+                // Skip ' ' and last digit
+                l -= 2;
+                var trailingNumberChar = line[l];
+
+                // Fill trailingNumber
+                while (charIsDigit(trailingNumberChar)) {
+                    const exp = math.pow(f64, 10, trailingDigitCount);
+                    trailingNumber += charToF64(trailingNumberChar) * exp;
+                    trailingDigitCount += 1;
+                    l -= 1;
+                    trailingNumberChar = line[l];
+                }
+
+                const nonDigitIndex = l;
+                const nonDigitChar = line[nonDigitIndex];
+
+                // If p == '0' or '1'
+                if (nonDigitChar == ' ') {
+                    const value = if (trailingNumber == 1) @as(f64, -0.0) else @as(f64, 0.0);
+                    try self.subTests.putNoClobber(try self.alloc.dupe(u8, testName), value);
+                    continue;
+                }
+
+                // If p == normal value: "0.188"
+                if (nonDigitChar == '.') {
+                    var value = trailingNumber * math.pow(f64, 10, -trailingDigitCount);
+                    if (value >= 0.5) value -= 1.0;
+                    try self.subTests.putNoClobber(try self.alloc.dupe(u8, testName), value);
+                    continue;
+                }
+
+                // p must be in scientific notation
+                var coefficient = charToF64(line[nonDigitIndex - 2]);
+                var symbolIndex = nonDigitIndex - 3;
+
+                // If coefficient has fraction: "2.3e-4" or "1-2.7e-3"
+                if (line[symbolIndex] == '.') {
+                    coefficient = charToF64(line[nonDigitIndex - 4]) + coefficient / 10;
+                    symbolIndex -= 2;
+                }
+
+                var value = coefficient * math.pow(f64, 10, -trailingNumber);
+                if (line[symbolIndex] == '-') value = -value;
+                try self.subTests.putNoClobber(try self.alloc.dupe(u8, testName), value);
             }
 
             // Make space
@@ -244,346 +230,40 @@ fn TestParser(comptime orders: u6, comptime runs: usize) type {
             return true;
         }
 
-        pub fn done(self: *Self) ![orders]StringHashMap([runs]f64) {
-            const time = @truncate(u64, @intCast(u128, std.time.nanoTimestamp()));
-            var rng = rand.DefaultPrng.init(time);
-            var result: [orders]StringHashMap([runs]f64) = undefined;
-            for (self.tallyArr) |*t, i| result[i] = try t.done(rng.random());
-            return result;
+        pub fn deinit(self: *Self) void {
+            _ = self.tester.kill() catch unreachable;
         }
 
         // -------------------------------- Internal --------------------------------
-
-        /// Updates the tallyIndex and tallies results
-        fn anyLine(self: *Self, line: []const u8) !bool {
-            // If line empty
-            if (line.len == 0) return if (self.tallyIndex +% 1 == self.tallyArr.len) true else false;
-
-            // If declaring order of magnitude
-            if (mem.eql(u8, line[0..6], "length")) {
-                var i: usize = 6;
-                while (line[i] != '^') i += 1;
-
-                // -10 as it starts from 10
-                self.tallyIndex = charToUsize(line[i + 1]) * 10 + charToUsize(line[i + 2]) - 10;
-                self.tally = &self.tallyArr[self.tallyIndex];
-                return false;
-            }
-
-            // Ignore if un-indented or table header
-            if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) return false;
-
-            // Process the actual test result
-            try self.tallyResult(line[2..]);
-            return false;
-        }
-
-        /// Tallies the folded result, meaning both 0 and 1 will be 0
-        fn tallyResult(self: *Self, line: []const u8) !void {
-            var i: usize = 0;
-
-            // Find test name
-            while (line[i] != ' ') i += 1;
-            const testName = line[0..i];
-
-            // Find 'p'
-            while (line[i] != 'p') {
-                defer i += 1;
-
-                // When instead of 'p' there is "fail" or "pass"
-                if (line[i] == '"') {
-                    const value: f64 = if (line[i + 1] == 'p') 1 else 0;
-                    return try self.tally.note(testName, value);
-                }
-            }
-
-            // Jump after '='
-            i += 3;
-
-            // Find number start
-            while (line[i] == ' ') i += 1;
-
-            // Find number end
-            while (line[i] != ' ') i += 1;
-            const numberEnd = i;
-            const trailingChar = line[numberEnd - 1];
-
-            // If p == "nan"
-            if (trailingChar == 'n') {
-                return try self.tally.note(testName, 0.0);
-            }
-
-            var trailingNumber: f64 = charToF64(trailingChar);
-            var trailingDigitCount: f64 = 1;
-
-            // Skip ' ' and last digit
-            var trailingNumberIndex = numberEnd - 2;
-            var trailingNumberChar = line[trailingNumberIndex];
-
-            // Fill trailingNumber
-            while (charIsDigit(trailingNumberChar)) {
-                const exp = math.pow(f64, 10, trailingDigitCount);
-                trailingNumber += charToF64(trailingNumberChar) * exp;
-                trailingDigitCount += 1;
-                trailingNumberIndex -= 1;
-                trailingNumberChar = line[trailingNumberIndex];
-            }
-
-            const nonDigitIndex = trailingNumberIndex;
-            const nonDigitChar = line[nonDigitIndex];
-
-            // If p == '0' or '1'
-            if (nonDigitChar == ' ') {
-                return try self.tally.note(testName, 0.0);
-            }
-
-            // If p == normal value: "0.188"
-            if (nonDigitChar == '.') {
-                return try self.tally.note(
-                    testName,
-                    fold(trailingNumber * math.pow(f64, 10, -trailingDigitCount)),
-                );
-            }
-
-            // p must be in scientific notation
-            var coefficient = charToF64(line[nonDigitIndex - 2]);
-
-            // If coefficient has fraction: "2.3e-4" or "1-2.7e-3"
-            if (line[nonDigitIndex - 3] == '.') {
-                coefficient = charToF64(line[nonDigitIndex - 4]) + coefficient / 10;
-            }
-
-            return try self.tally.note(
-                testName,
-                fold(coefficient * math.pow(f64, 10, -trailingNumber)),
-            );
-        }
 
         const Self = @This();
     };
 }
 
-/// Talies results from multiple test runs.
-fn Tally(comptime runs: usize) type {
-    return struct {
-        map: StringHashMap(Array),
+pub const Score = struct {
+    order: usize,
+    fault: f64,
 
-        pub fn init() Self {
-            return Self{
-                .map = StringHashMap(Array).init(alloc),
-            };
+    pub fn better(a: Score, b: Score) Score {
+        if (a.order == b.order) {
+            return if (a.fault < b.fault) a else b;
         }
+        return if (a.order > b.order) a else b;
+    }
+};
 
-        /// Tallies the test.
-        pub fn note(self: *Self, name: []const u8, result: f64) !void {
-            if (!self.map.contains(name)) {
-                const dupe = try alloc.dupe(u8, name);
-                try self.map.putNoClobber(dupe, Array.init(0) catch unreachable);
-            }
-            self.map.getPtr(name).?.appendAssumeCapacity(result);
-        }
-
-        pub fn done(self: *Self, rng: Random) !StringHashMap([runs]f64) {
-            defer self.map.deinit();
-            var result = StringHashMap([runs]f64).init(alloc);
-            var iter = self.map.iterator();
-            while (true) {
-                const pair = iter.next() orelse break;
-                if (pair.value_ptr.len < runs) {
-                    while (pair.value_ptr.len < runs) {
-                        pair.value_ptr.appendAssumeCapacity(1);
-                    }
-                    rng.shuffle(f64, &pair.value_ptr.buffer);
-                }
-                try result.putNoClobber(pair.key_ptr.*, pair.value_ptr.buffer);
-            }
-            return result;
-        }
-
-        // -------------------------------- Internal --------------------------------
-
-        const Array = BoundedArray(f64, runs);
-        const Self = @This();
-    };
-}
+pub const SubTests = StringHashMap(f64);
 
 pub const SubTest = struct {
     name: []const u8,
     result: f64,
 };
 
-pub fn testRNG(
-    comptime RNG: type,
-    comptime orders: u6,
-    comptime runs: usize,
-    comptime threshold: f64,
-) !Score {
-    _ = threshold;
-    var runResults: [runs]BoundedArray(StringHashMap(f64), orders) = undefined;
-    for (runResults) |*runResult, r| {
-        runResult.* = BoundedArray(StringHashMap(f64), orders){};
+fn charToF64(char: u8) f64 {
+    debug.assert(charIsDigit(char));
+    return @intToFloat(f64, char - '0');
+}
 
-        var tester = std.ChildProcess.init(&[_][]const u8{
-            "/Users/gio/PractRand/RNG_test",
-            "stdin",
-            "-a",
-            "-tf",
-            "2",
-            "-te",
-            "1",
-            "-tlmin",
-            "10",
-            "-tlmax",
-            "99",
-            "-tlmaxonly",
-            "-multithreaded",
-        }, alloc);
-
-        tester.stdin_behavior = .Pipe;
-        tester.stdout_behavior = .Pipe;
-        try tester.spawn();
-        _ = try os.fcntl(tester.stdin.?.handle, os.F.SETFL, os.O.NONBLOCK);
-        _ = try os.fcntl(tester.stdout.?.handle, os.F.SETFL, os.O.NONBLOCK);
-
-        const reader = tester.stdout.?.reader();
-        var readBuffer: [1 << 16]u8 = undefined; // Size
-        var readIndex: u16 = 0;
-        var subTests: *StringHashMap(f64) = undefined;
-        const writer = tester.stdin.?.writer();
-        var writeReady = false;
-        var writeBuffer: [1 << 10]RNG.Out = undefined; // Size
-        var writeRNG = RNG.init(r);
-        while (testing: {
-            // Fill readBuffer
-            var readCount = reader.read(readBuffer[readIndex..]) catch 0;
-            if (readCount == 0) break :testing true;
-            const readLen = readIndex + @intCast(u16, readCount);
-            var lineStart: u16 = 0;
-
-            // Parse readBuffer
-            while (true) {
-                var lineRead = true;
-                lineParse: {
-                    // If line not done
-                    if (readBuffer[readIndex] != '\n') {
-                        lineRead = false;
-                        break :lineParse;
-                    }
-                    const line = readBuffer[lineStart..readIndex];
-
-                    // If line is empty
-                    if (line.len == 0) {
-                        if (runResult.len < orders) {
-                            subTests = runResult.addOneAssumeCapacity();
-                            subTests.* = StringHashMap(f64).init(alloc);
-                            break :lineParse;
-                        } else break :testing false;
-                    }
-
-                    // Ignore if un-indented or table header
-                    if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) {
-                        break :lineParse;
-                    }
-
-                    // Skip indentation
-                    var l: usize = 2;
-
-                    // Find test name
-                    while (line[l] != ' ') l += 1;
-                    const testName = line[2..l];
-
-                    // Find 'p'
-                    while (line[l] != 'p') {
-                        defer l += 1;
-
-                        // When instead of 'p' there is "fail" or "pass"
-                        if (line[l] == '"') {
-                            const value: f64 = if (line[l + 1] == 'f') 0 else 0.5;
-                            try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
-                        }
-                    }
-
-                    // Jump after '='
-                    l += 3;
-
-                    // Find number start
-                    while (line[l] == ' ') l += 1;
-
-                    // Find number end
-                    while (line[l] != ' ') l += 1;
-                    const trailingChar = line[l - 1];
-
-                    // If p == "nan"
-                    if (trailingChar == 'n') {
-                        try subTests.putNoClobber(try alloc.dupe(u8, testName), math.nan_f64);
-                    }
-
-                    var trailingNumber: f64 = charToF64(trailingChar);
-                    var trailingDigitCount: f64 = 1;
-
-                    // Skip ' ' and last digit
-                    l -= 2;
-                    var trailingNumberChar = line[l];
-
-                    // Fill trailingNumber
-                    while (charIsDigit(trailingNumberChar)) {
-                        const exp = math.pow(f64, 10, trailingDigitCount);
-                        trailingNumber += charToF64(trailingNumberChar) * exp;
-                        trailingDigitCount += 1;
-                        l -= 1;
-                        trailingNumberChar = line[l];
-                    }
-
-                    const nonDigitIndex = l;
-                    const nonDigitChar = line[nonDigitIndex];
-
-                    // If p == '0' or '1'
-                    if (nonDigitChar == ' ') {
-                        const value = if (trailingNumber == 1) @as(f64, -0.0) else @as(f64, 0.0);
-                        try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
-                    }
-
-                    // If p == normal value: "0.188"
-                    if (nonDigitChar == '.') {
-                        var value = trailingNumber * math.pow(f64, 10, -trailingDigitCount);
-                        if (value >= 0.5) value -= 1.0;
-                        try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
-                    }
-
-                    // p must be in scientific notation
-                    std.debug.print("{s}\n", .{line});
-                    var coefficient = charToF64(line[nonDigitIndex - 2]);
-                    var symbolIndex = nonDigitIndex - 3;
-
-                    // If coefficient has fraction: "2.3e-4" or "1-2.7e-3"
-                    if (line[symbolIndex] == '.') {
-                        coefficient = charToF64(line[nonDigitIndex - 4]) + coefficient / 10;
-                        symbolIndex -= 2;
-                    }
-
-                    var value = coefficient * math.pow(f64, 10, -trailingNumber);
-                    if (line[symbolIndex] == '-') value = -value;
-                    try subTests.putNoClobber(try alloc.dupe(u8, testName), value);
-                }
-                if (lineRead) lineStart = readIndex + 1;
-                readIndex += 1;
-                if (readIndex == readLen) break;
-            }
-
-            // Make space
-            mem.copy(u8, readBuffer[0..], readBuffer[lineStart..readLen]);
-            readIndex -= lineStart;
-            break :testing true;
-        }) {
-            if (!writeReady) for (writeBuffer) |*w| {
-                w.* = writeRNG.gen();
-            };
-            writeReady = false;
-            writer.writeAll(mem.asBytes(writeBuffer[0..])) catch {
-                writeReady = true;
-            };
-        }
-        _ = try tester.kill();
-    }
-    return .{ .order = 0, .fault = 0 };
+fn charIsDigit(char: u8) bool {
+    return char >= '0' and char <= '9';
 }
