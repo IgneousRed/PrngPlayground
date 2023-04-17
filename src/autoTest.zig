@@ -15,11 +15,12 @@ pub fn testRNG(
     comptime orders: usize,
     comptime threshold: f64,
     // comptime runs: usize,
+    config: RNG.Config,
     allocator: Allocator,
 ) !Score {
     if (orders == 0) return Score{ .order = 0, .fault = math.inf_f64 };
 
-    var driver = try TestDriver(RNG).init(0, allocator);
+    var driver = try TestDriver(RNG).init(0, config, allocator);
     defer driver.deinit();
     var fault = 1 / @fabs((try driver.reportWorst()).result);
     if (fault >= threshold) return Score{ .order = 0, .fault = fault };
@@ -28,6 +29,7 @@ pub fn testRNG(
     while (o < orders) {
         defer o += 1;
         fault = 1 / @fabs((try driver.reportWorst()).result);
+        // std.debug.print("o: {}\n", .{fault});
         if (sum + fault >= threshold) {
             break;
         } else sum += fault;
@@ -49,7 +51,7 @@ fn TestDriver(comptime RNG: type) type {
         writeReady: bool = false,
         subTests: SubTests = undefined,
 
-        pub fn init(testSeed: usize, allocator: Allocator) !Self {
+        pub fn init(testSeed: RNG.State, config: RNG.Config, allocator: Allocator) !Self {
             var tester = std.ChildProcess.init(&[_][]const u8{
                 "/Users/gio/PractRand/RNG_test",
                 "stdin",
@@ -72,18 +74,18 @@ fn TestDriver(comptime RNG: type) type {
             _ = try os.fcntl(tester.stdout.?.handle, os.F.SETFL, os.O.NONBLOCK);
 
             return Self{
-                .rng = RNG.init(testSeed),
+                .rng = RNG.init(testSeed, config),
                 .tester = tester,
                 .reader = tester.stdout.?.reader(),
                 .writer = tester.stdin.?.writer(),
                 .readBuffer = try allocator.alloc(u8, 1 << 20),
-                .writeBuffer = try allocator.alloc(RNG.Out, 1 << 16),
+                .writeBuffer = try allocator.alloc(RNG.Out, 1 << 10),
                 .alloc = allocator,
             };
         }
 
         pub fn reportWorst(self: *Self) !SubTest {
-            defer self.subTests.deinit();
+            // defer self.subTests.deinit();
             var iter = (try self.reportAll()).iterator();
             var worst = iter.next() orelse unreachable;
             while (true) {
@@ -244,12 +246,19 @@ pub const Score = struct {
     order: usize,
     fault: f64,
 
-    pub fn better(a: Score, b: Score) Score {
+    pub fn worseThan(a: Score, b: Score) bool {
         if (a.order == b.order) {
-            return if (a.fault < b.fault) a else b;
+            return if (a.fault > b.fault) true else false;
         }
-        return if (a.order > b.order) a else b;
+        return if (a.order < b.order) true else false;
     }
+
+    // pub fn better(a: Score, b: Score) Score {
+    //     if (a.order == b.order) {
+    //         return if (a.fault < b.fault) a else b;
+    //     }
+    //     return if (a.order > b.order) a else b;
+    // }
 };
 
 pub const SubTests = StringHashMap(f64);

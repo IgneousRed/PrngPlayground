@@ -28,7 +28,7 @@ fn avrDist(a: f64, b: f64) f64 {
     } else return math.pow(f64, avr, 2) / 2;
 }
 
-fn MyRng(comptime outBits: comptime_int) type {
+fn MyRng() type {
     return struct {
         state: State,
 
@@ -39,11 +39,11 @@ fn MyRng(comptime outBits: comptime_int) type {
         pub fn gen(self: *Self) Out {
             self.state *%= dev.harmonic64LCG64;
             self.state +%= dev.golden64;
-            return bits.highBits(outBits, self.state);
+            return @truncate(Out, self.state >> 32);
         }
 
-        pub const State = bits.U(outBits * 2);
-        pub const Out = bits.U(outBits);
+        pub const State = u64;
+        pub const Out = u32;
 
         // -------------------------------- Internal --------------------------------
 
@@ -51,59 +51,92 @@ fn MyRng(comptime outBits: comptime_int) type {
     };
 }
 
-// timeMix: [0,4)
-// add: [0,4)
-// addMix: [0,4)
-// shift: [0,32)
-fn NonDeter(
-    comptime timeMix: usize,
-    comptime mulLCG: bool,
-    comptime add: usize,
-    comptime addMix: usize,
-    comptime shift: u6,
-) type {
-    return struct {
-        state: Out,
+const NonDeter = struct {
+    state: State,
+    config: Config,
 
-        pub fn init(seed: Out) Self {
-            return Self{ .state = seed *% dev.oddPhiFraction(Out) };
+    pub fn init(seed: State, config: Config) Self {
+        return Self{ .state = seed *% dev.oddPhiFraction(State), .config = config };
+    }
+
+    pub fn gen(self: *Self) Out {
+        switch (self.config.perm) {
+            0 => {
+                self.entropy();
+                self.mul();
+                self.sh();
+            },
+            1 => {
+                self.entropy();
+                self.sh();
+                self.mul();
+            },
+            2 => {
+                self.mul();
+                self.entropy();
+                self.sh();
+            },
+            3 => {
+                self.mul();
+                self.sh();
+                self.entropy();
+            },
+            4 => {
+                self.sh();
+                self.entropy();
+                self.mul();
+            },
+            5 => {
+                self.sh();
+                self.mul();
+                self.entropy();
+            },
+            else => @panic("perm must be < 6"),
         }
+        return @truncate(Out, if (self.config.high)
+            self.state >> @bitSizeOf(State) - @bitSizeOf(Out)
+        else
+            self.state);
+    }
 
-        pub fn gen(self: *Self) Out {
-            const t = @truncate(Out, @divTrunc(@intCast(u128, std.time.nanoTimestamp()), 1000));
-            switch (timeMix) {
-                0 => self.state ^= t,
-                1 => self.state +%= t,
-                2 => self.state -%= t,
-                3 => self.state = t -% self.state,
-                else => @compileError("Nop"),
-            }
-            self.state *%= if (mulLCG) dev.harmonic64LCG64 else dev.harmonic64MCG64;
-            const val = switch (add) {
-                0 => 0,
-                1 => dev.harmonic64LCG64,
-                2 => dev.harmonic64MCG64,
-                3 => dev.oddPhiFraction(Out),
-                else => @compileError("Nop"),
-            };
-            switch (addMix) {
-                0 => self.state ^= val,
-                1 => self.state +%= val,
-                2 => self.state -%= val,
-                3 => self.state = val -% self.state,
-                else => @compileError("Nop"),
-            }
-            if (shift > 0) self.state ^= self.state >> shift;
-            return self.state;
-        }
-
-        pub const Out = u64;
-
-        // -------------------------------- Internal --------------------------------
-
-        const Self = @This();
+    pub const Config = struct {
+        whole: bool,
+        mix: usize,
+        lcg: bool,
+        shift: usize,
+        perm: usize,
+        high: bool,
     };
-}
+    pub const State = u64;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    fn sh(self: *Self) void {
+        if (self.config.shift > 0)
+            self.state ^= self.state >> math.log2_int(State, @intCast(State, self.config.shift));
+    }
+
+    fn mul(self: *Self) void {
+        self.state *%= if (self.config.lcg) dev.harmonicLCG(State) else dev.harmonicMCG(State);
+    }
+
+    fn entropy(self: *Self) void {
+        const t = if (self.config.whole)
+            @truncate(State, @divTrunc(@intCast(u128, std.time.nanoTimestamp()), 1000))
+        else
+            @truncate(State, @intCast(u128, std.time.nanoTimestamp()));
+        switch (self.config.mix) {
+            0 => self.state ^= t,
+            1 => self.state +%= t,
+            2 => self.state -%= t,
+            3 => self.state = t -% self.state,
+            else => @panic("Mix must be < 4"),
+        }
+    }
+
+    const Self = @This();
+};
 
 fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.Score {
     const results = try autoTest.testPRNG(T, orders, runs);
@@ -112,64 +145,98 @@ fn score(comptime T: type, comptime orders: u6, comptime runs: usize) !autoTest.
     const verdict = autoTest.verdict(orders, summary, true);
     return autoTest.score(orders, verdict, std.math.inf_f64);
 }
-
+//          TMS32
+// timeMix  2
+// mulLCG   false
+// shift    27
+// Fault
 pub fn main() !void {
-    const timeMix = 1; // 2
-    const mulLCG = true; // false
-    const add = 3; // 1
-    const addMix = 0; // 1
-    const shift = 21; // 21
-
-    std.debug.print("timeMix:\n", .{});
-    _ = timeMix;
-    comptime var i: comptime_int = 0;
-    inline while (i < 4) {
-        const result = try autoTest.testRNG(NonDeter(i, mulLCG, add, addMix, shift), 99, 1 << (1 << 5), alloc);
-        std.debug.print("{}: {any}\n", .{ i, result });
-        i += 1;
-    }
-
-    // std.debug.print("mulLCG:\n", .{});
-    // _ = mulLCG;
-    // var result = try autoTest.testRNG(NonDeter(timeMix, false, add, addMix, shift), 99, 1 << (1 << 5), alloc);
-    // std.debug.print("false: {any}\n", .{result});
-    // result = try autoTest.testRNG(NonDeter(timeMix, true, add, addMix, shift), 99, 1 << (1 << 5), alloc);
-    // std.debug.print("true: {any}\n", .{result});
-
-    // std.debug.print("add:\n", .{});
-    // _ = add;
-    // comptime var i: comptime_int = 1;
-    // inline while (i < 4) {
-    //     const result = try autoTest.testRNG(NonDeter(timeMix, mulLCG, i, addMix, shift), 99, 1 << (1 << 5), alloc);
-    //     std.debug.print("{}: {any}\n", .{ i, result });
-    //     i += 1;
-    // }
-
-    // std.debug.print("addMix:\n", .{});
-    // _ = addMix;
-    // comptime var i: comptime_int = 0;
-    // inline while (i < 4) {
-    //     const result = try autoTest.testRNG(NonDeter(timeMix, mulLCG, add, i, shift), 99, 1 << (1 << 5), alloc);
-    //     std.debug.print("{}: {any}\n", .{ i, result });
-    //     i += 1;
-    // }
-
-    // std.debug.print("shift:\n", .{});
-    // _ = shift;
-    // comptime var i: comptime_int = 1;
-    // inline while (i < 64) {
-    //     const result = try autoTest.testRNG(NonDeter(timeMix, mulLCG, add, addMix, i), 99, 1 << (1 << 5), alloc);
-    //     std.debug.print("{}: {any}\n", .{ i, result });
-    //     i += 1;
-    // }
-
-    // try testing();
+    // const config = NonDeter.Config{
+    //     .whole = false,
+    //     .mix = 3,
+    //     .lcg = false,
+    //     .shift = 15,
+    //     .perm = 0,
+    //     .high = false,
+    // };
+    // try testing(NonDeter, config);
+    try autoConfig();
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
     // time();
 }
-fn testing() !void {
+fn autoConfig() !void {
+    var config = NonDeter.Config{
+        .whole = false,
+        .mix = 1,
+        .lcg = false,
+        .shift = 53,
+        .perm = 0,
+        .high = false,
+    };
+    var round: usize = 0;
+    while (true) {
+        defer round += 1;
+        std.debug.print("Round: {}\n", .{round});
+        var j: usize = 0;
+        while (j < 2) {
+            defer j += 1;
+            // Mix
+            std.debug.print("Mix:\n", .{});
+            var best = autoTest.Score{ .order = 0, .fault = math.inf_f64 };
+            var bestI: usize = undefined;
+            var i: usize = 0;
+            while (i < 4) {
+                defer i += 1;
+                config.mix = i;
+                const result = try autoTest.testRNG(NonDeter, 99, 2 << (1 << 5), config, alloc);
+                std.debug.print("Mix: {}, Score: {}\n", .{ config.mix, result });
+                if (best.worseThan(result)) {
+                    best = result;
+                    bestI = i;
+                }
+            }
+            config.mix = bestI;
+            std.debug.print("New Mix: {}, Score: {}\n", .{ config.mix, best });
+            // Lcg
+            std.debug.print("Lcg:\n", .{});
+            config.lcg = false;
+            const resultF = try autoTest.testRNG(NonDeter, 99, 2 << (1 << 5), config, alloc);
+            std.debug.print("Mix: false, Score: {}\n", .{resultF});
+            config.lcg = true;
+            const resultT = try autoTest.testRNG(NonDeter, 99, 2 << (1 << 5), config, alloc);
+            std.debug.print("Mix: true, Score: {}\n", .{resultT});
+            if (resultF.worseThan(resultT)) {
+                config.lcg = true;
+                best = resultT;
+            } else {
+                config.lcg = false;
+                best = resultF;
+            }
+            std.debug.print("New Lcg: {}, Score: {}\n", .{ config.lcg, best });
+        }
+        // Shift
+        std.debug.print("Shift:\n", .{});
+        var best = autoTest.Score{ .order = 0, .fault = math.inf_f64 };
+        var bestI: usize = undefined;
+        var i: usize = 2;
+        while (i < 64) {
+            defer i += 1;
+            config.shift = i;
+            const result = try autoTest.testRNG(NonDeter, 99, 2 << (1 << 5), config, alloc);
+            std.debug.print("Shift: {}, Score: {}\n", .{ config.shift, result });
+            if (best.worseThan(result)) {
+                best = result;
+                bestI = i;
+            }
+        }
+        config.shift = bestI;
+        std.debug.print("New Shift: {}, Score: {}\n", .{ config.shift, best });
+        std.debug.print("Perm: {}, Mix: {}, Lcg: {}\n", .{ config.perm, config.mix, config.lcg });
+    }
+}
+fn testing(comptime RNG: type, config: RNG.Config) !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
@@ -189,33 +256,11 @@ fn testing() !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    const T = u32;
-    var state: T = 3;
-    var buf = [1]u16{0} ** (1 << 16);
+    var rng = RNG.init(0, config);
+    var buf: [1 << 16]RNG.Out = undefined;
     while (true) {
-        var i: usize = 0;
-        while (i < buf.len) {
-            defer i += 1;
-
-            // defer state += 1;
-            // var value: T = state;
-
-            // value *%= dev.harmonic64MCG64;
-            // value ^= value >> 32;
-            // value *%= dev.harmonic64MCG64;
-            // value ^= value >> 32;
-            // value *%= dev.harmonic64MCG64;
-            // value ^= value >> 32;
-            // buf[i] = value;
-
-            state *%= dev.harmonic32LCG32;
-            state +%= dev.harmonic32MCG32;
-
-            // state = @bitReverse(state);
-            state ^= state >> 23;
-
-            // buf[i] = @truncate(u16, state);
-            buf[i] = @intCast(u16, state >> 16);
+        for (buf) |*b| {
+            b.* = rng.gen();
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }

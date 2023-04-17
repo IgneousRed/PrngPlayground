@@ -51,16 +51,24 @@ fn permutation64(value: u64) u64 {
     return mixed >> 43 ^ mixed;
 }
 
-pub const harmonic32MCG32 = 0x93d765dd;
-pub const harmonic32LCG24 = 0xc083c5;
-pub const harmonic32LCG32 = 0x915f77f5;
-pub const harmonic64MCG48 = 0xbdcdbb079f8d;
-pub const harmonic64MCG64 = 0xf1357aea2e62a9c5;
-pub const harmonic64LCG64 = 0xd1342543de82ef95;
-pub const harmonic128MCG64 = 0xdefba91144f2b375;
-pub const harmonic128MCG128 = 0xaadec8c3186345282b4e141f3a1232d5;
-pub const harmonic128LCG67 = 0x77808d182e9136c35;
-pub const harmonic128LCG128 = 0xdb36357734e34abb0050d0761fcdfc15;
+pub fn harmonicMCG(comptime T: type) T {
+    return switch (T) {
+        u32 => 0x93d765dd,
+        u64 => 0xf1357aea2e62a9c5,
+        u128 => 0xaadec8c3186345282b4e141f3a1232d5,
+        else => @compileError("Size not supported"),
+    };
+}
+
+pub fn harmonicLCG(comptime T: type) T {
+    return switch (T) {
+        u32 => 0x915f77f5,
+        u64 => 0xd1342543de82ef95,
+        u128 => 0xdb36357734e34abb0050d0761fcdfc15,
+        else => @compileError("Size not supported"),
+    };
+}
+
 pub const golden32 = 0x9e3779bd;
 pub const golden64 = 0x9e3779b97f4a7c15;
 pub const golden128 = 0x9e3779b97f4a7c15f39cc0605cedc835;
