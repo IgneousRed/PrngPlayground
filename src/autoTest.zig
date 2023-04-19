@@ -14,28 +14,31 @@ pub fn testRNG(
     comptime RNG: type,
     comptime maxOrder: usize,
     comptime threshold: f64,
-    comptime runs: usize, // TODO: make runtime
+    runs: usize,
     config: RNG.Config,
     alloc: Allocator,
 ) !Score {
     if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
 
-    var runsOrdersSubs: [runs]BoundedArray(SubTests, maxOrder - 9) = undefined;
+    var orderCount = maxOrder - 9;
+    var runsOrdersSubs = alloc.alloc(BoundedArray(SubTests, orderCount), runs);
     runLoop: for (runsOrdersSubs) |*run, r| {
         var tester = TestDriver(RNG).init(@truncate(RNG.State, r), config, alloc);
         defer tester.deinit();
-        while (run.len < run.buf.len) {
+        while (run.len < orderCount) {
             const subTests = try tester.next();
             const w = try worst(subTests, alloc);
             defer w.deinit();
-            if (w.fault >= threshold) {
+            if (@fabs(w.fault) >= runs * threshold) {
+                orderCount = run.len;
                 subTests.deinit();
                 continue :runLoop;
             }
             run.addOneAssumeCapacity().* = subTests;
         }
     }
-    var ordersSubs
+    // var ordersSubs = try alloc.alloc(SubTests, orderCount);
+
     return Score{ .order = 0, .fault = math.inf_f64 };
 }
 
