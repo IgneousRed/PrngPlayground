@@ -14,35 +14,38 @@ pub fn testRNG(
     comptime RNG: type,
     comptime maxOrder: usize,
     comptime threshold: f64,
-    runs: usize,
+    runCount: usize,
     config: RNG.Config,
     alloc: Allocator,
 ) !Score {
     if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
 
-    var orderCount = maxOrder - 9;
-    var runsOrdersSubs = alloc.alloc(BoundedArray(SubTests, orderCount), runs);
-    runLoop: for (runsOrdersSubs) |*run, r| {
-        var tester = TestDriver(RNG).init(@truncate(RNG.State, r), config, alloc);
+    var activeOrders = maxOrder - 9;
+    var ordersTally = alloc.alloc(Tally, activeOrders);
+    var run: usize = 0;
+    while (run < runCount) {
+        defer run += 1;
+        var tester = TestDriver(RNG).init(@truncate(RNG.State, run), config, alloc);
         defer tester.deinit();
-        while (run.len < orderCount) {
+        while (run.len < activeOrders) {
             const subTests = try tester.next();
             const w = try worst(subTests, alloc);
             defer w.deinit();
             if (@fabs(w.fault) >= runs * threshold) {
-                orderCount = run.len;
+                activeOrders = run.len;
                 subTests.deinit();
                 continue :runLoop;
             }
             run.addOneAssumeCapacity().* = subTests;
         }
     }
-    // var ordersSubs = try alloc.alloc(SubTests, orderCount);
 
     return Score{ .order = 0, .fault = math.inf_f64 };
 }
 
-pub fn worst(tests: SubTests, alloc: Allocator) !SubTest {
+const Tally = struct {};
+
+pub fn worst(tests: SubTests, alloc: Allocator) !SubTest { // TODO: delete?
     var iter = tests.iterator();
     var result = iter.next() orelse unreachable;
     while (true) {
@@ -52,29 +55,29 @@ pub fn worst(tests: SubTests, alloc: Allocator) !SubTest {
     return SubTest.init(result.key_ptr.*, result.value_ptr.*, alloc);
 }
 
-pub fn testRNG_OLD(
-    comptime RNG: type,
-    comptime maxOrder: usize,
-    comptime threshold: f64,
-    config: RNG.Config,
-    allocator: Allocator,
-) !Score {
-    if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
+// pub fn testRNG(
+//     comptime RNG: type,
+//     comptime maxOrder: usize,
+//     comptime threshold: f64,
+//     config: RNG.Config,
+//     allocator: Allocator,
+// ) !Score {
+//     if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
 
-    var driver = try TestDriver(RNG).init(0, config, allocator);
-    defer driver.deinit();
-    var sum = 1 / @fabs((try driver.reportWorst()).result);
-    if (sum >= threshold) return Score{ .order = 10, .fault = sum };
-    var o: usize = 11;
-    while (o < maxOrder) {
-        defer o += 1;
-        const fault = 1 / @fabs((try driver.reportWorst()).result);
-        if (sum + fault >= threshold) {
-            break;
-        } else sum += fault;
-    }
-    return Score{ .order = o - 1, .fault = sum };
-}
+//     var driver = try TestDriver(RNG).init(0, config, allocator);
+//     defer driver.deinit();
+//     var sum = 1 / @fabs((try driver.reportWorst()).result);
+//     if (sum >= threshold) return Score{ .order = 10, .fault = sum };
+//     var o: usize = 11;
+//     while (o < maxOrder) {
+//         defer o += 1;
+//         const fault = 1 / @fabs((try driver.reportWorst()).result);
+//         if (sum + fault >= threshold) {
+//             break;
+//         } else sum += fault;
+//     }
+//     return Score{ .order = o - 1, .fault = sum };
+// }
 
 fn TestDriver(comptime RNG: type) type {
     return struct {
