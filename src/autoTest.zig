@@ -21,29 +21,130 @@ pub fn testRNG(
     if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
 
     var activeOrders = maxOrder - 9;
-    var ordersTally = alloc.alloc(Tally, activeOrders);
+    var ordersTally = try alloc.alloc(Tally, activeOrders);
+    for (ordersTally) |*tally| tally.* = try Tally.init(runCount, alloc);
     var run: usize = 0;
-    while (run < runCount) {
+    runLoop: while (run < runCount) {
         defer run += 1;
-        var tester = TestDriver(RNG).init(@truncate(RNG.State, run), config, alloc);
+        var tester = try TestDriver(RNG).init(@truncate(RNG.State, run), config, alloc);
         defer tester.deinit();
-        while (run.len < activeOrders) {
-            const subTests = try tester.next();
-            const w = try worst(subTests, alloc);
-            defer w.deinit();
-            if (@fabs(w.fault) >= runs * threshold) {
-                activeOrders = run.len;
-                subTests.deinit();
-                continue :runLoop;
+        for (ordersTally[0..activeOrders]) |*tally, order| {
+            var subTests = try tester.next();
+            for (subTests.iterator()) |pair| {
+                if (tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*, runCount) >= threshold) {
+                    activeOrders = order;
+                    continue :runLoop;
+                }
             }
-            run.addOneAssumeCapacity().* = subTests;
         }
     }
-
-    return Score{ .order = 0, .fault = math.inf_f64 };
+    if (activeOrders == 0) return Score{ .order = 0, .fault = math.inf_f64 };
+    var faultSum: f64 = ordersTally[0].conclude();
+    for (ordersTally[1..activeOrders]) |*tally, order| {
+        const value = tally.conclude();
+        if (faultSum + value >= threshold) {
+            return Score{ .order = order + 9, .fault = faultSum };
+        }
+        faultSum += value;
+    }
+    return Score{ .order = activeOrders + 9, .fault = faultSum };
 }
 
-const Tally = struct {};
+const Tally = struct {
+    map: ManagedStringHashMap(TallyData),
+    runs: usize,
+
+    pub fn init(runs: usize, alloc: Allocator) !Self {
+        return Self{ .map = ManagedStringHashMap(TallyData).init(alloc), .runs = runs };
+    }
+
+    pub fn putAndReport(self: *Self, name: []const u8, result: f64, count: usize) f64 {
+        if (!self.map.contains(name)) {
+            try self.map.put(name, try TallyData.init(count, self.map.allocator()));
+        }
+        return self.map.get(name).?.putReport(result);
+    }
+
+    pub fn conclude(self: *Self) f64 {
+        defer self.map.deinit();
+        var worstResult: f64 = 0.0;
+        for (self.map.iterator()) |data| {
+            const value = data.conclude(self.map.allocator());
+            if (worstResult < value) worstResult = value;
+        }
+        return worstResult;
+    }
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+const TallyData = struct {
+    results: []f64,
+    negIndex: usize,
+
+    posIndex: usize = 0,
+
+    pub fn init(count: usize, alloc: Allocator) !Self {
+        const results = try alloc.alloc(f64, count);
+        mem.set(f64, results, 0.5);
+        return Self{ .results = results, .negIndex = count };
+    }
+
+    pub fn putReport(self: *Self, value: f64) f64 {
+        if (value < 0.0) {
+            self.negIndex -= 1;
+            self.results[self.negIndex] = -value;
+        }
+        self.results[self.posIndex] = value;
+        self.posIndex += 1;
+        return self.report();
+    }
+
+    pub fn conclude(self: *Self, alloc: Allocator) f64 {
+        defer alloc.free(self.results);
+        return self.report();
+    }
+
+    // -------------------------------- Internal --------------------------------
+
+    fn report(self: *Self) f64 {
+        const countPos = self.posIndex;
+        const countNeg = self.results.len - self.negIndex;
+        const averagePos = Self.sliceMuliplySum(self.results[0..countPos], 1 / countPos);
+        const averageNeg = Self.sliceMuliplySum(self.results[self.negIndex..], 1 / countNeg);
+
+        var average = @intToFloat(f64, self.results.len - countPos - countNeg) * 0.5;
+        if (averageNeg / countNeg < averagePos / countPos) {
+            average += (1 - averagePos) * countPos;
+            average += averageNeg * countNeg;
+        } else {
+            average += averagePos * countPos;
+            average += (1 - averageNeg) * countNeg;
+        }
+        average /= self.results.len; // TODO: divide earlier
+
+        if (average > 0.5) std.debug.print("AVERAGE: {}({})", .{ average, self.results });
+        const biased = 1 / average;
+        return biased - 2;
+    }
+
+    fn sliceMuliplySum(slice: []f64, value: f64) f64 {
+        var result: f64 = 0.0;
+        for (slice) |v| result += v * value;
+        return result;
+    }
+
+    const Self = @This();
+};
+
+pub fn fault(result: f64) f64 {
+    if (result == math.nan_f64) return math.inf_f64;
+    const value = @fabs(result); // best = 0.5, worst = 0
+    const biased = 1 / value; //    best = 2.0, worst = inf
+    return biased - 2; //           best = 0.0, worst = inf
+}
 
 pub fn worst(tests: SubTests, alloc: Allocator) !SubTest { // TODO: delete?
     var iter = tests.iterator();
@@ -125,7 +226,7 @@ fn TestDriver(comptime RNG: type) type {
         }
 
         pub fn next(self: *Self) !SubTests {
-            self.subTests = SubTests.init(self.alloc);
+            self.subTests = SubTests.init(self.tester.allocator);
             while (try self.read()) {
                 if (!self.writeReady) for (self.writeBuffer) |*w| {
                     w.* = self.rng.gen();
@@ -285,8 +386,8 @@ pub fn ManagedStringHashMap(comptime T: type) type {
             return Self{ .map = StringHashMap(T).init(alloc) };
         }
 
-        pub fn count(self: *Self) Self.Size {
-            return self.map.count();
+        pub fn allocator(self: *Self) Allocator {
+            return self.map.allocator;
         }
 
         pub fn put(self: *Self, key: []const u8, value: T) !void {
@@ -294,17 +395,29 @@ pub fn ManagedStringHashMap(comptime T: type) type {
                 self.map.putAssumeCapacity(key, value);
                 return;
             }
-            self.map.putNoClobber(try self.map.allocator.dupe(u8, key), value);
+            try self.map.putNoClobber(try self.map.allocator.dupe(u8, key), value);
+        }
+
+        pub fn get(self: *Self, name: []const u8) ?T {
+            return self.map.get(name);
+        }
+
+        pub fn count(self: *Self) StringHashMap(T).Size {
+            return self.map.count();
+        }
+
+        pub fn iterator(self: *Self) Iterator {
+            return self.map.iterator();
         }
 
         pub fn deinit(self: *Self) void {
             defer self.map.deinit();
-            var iter = self.map.keyIterator();
-            while (true) {
-                const key = iter.next() orelse break;
-                self.map.allocator.free(key); // deref?
+            for (self.map.keyIterator()) |key| {
+                self.map.allocator.free(key);
             }
         }
+
+        pub const Iterator = StringHashMap(T).Iterator;
 
         // -------------------------------- Internal --------------------------------
 

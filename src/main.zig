@@ -28,11 +28,12 @@ fn avrDist(a: f64, b: f64) f64 {
     } else return math.pow(f64, avr, 2) / 2;
 }
 
-fn MyRng() type {
+fn MyRNG() type {
     return struct {
         state: State,
 
-        pub fn init(asd: State) Self {
+        pub fn init(asd: State, config: Config) Self {
+            _ = config;
             return Self{ .state = asd *% dev.oddPhiFraction(State) };
         }
 
@@ -41,6 +42,8 @@ fn MyRng() type {
             self.state +%= dev.golden64;
             return @truncate(Out, self.state >> 32);
         }
+
+        pub const Config = struct {};
 
         pub const State = u64;
         pub const Out = u32;
@@ -55,10 +58,10 @@ const EntropyRNG = struct {
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         var self = try Self{ .state = Self.time() };
-        const heap = allocator.create(u1);
-        allocator.destroy(heap);
-        self.mix(@truncate(State, @ptrToInt(heap)));
-        self.mix(@truncate(State, @ptrToInt(&heap)));
+        const p = allocator.create(u1);
+        allocator.destroy(p);
+        self.mix(@truncate(State, @ptrToInt(&p)));
+        self.mix(@truncate(State, @ptrToInt(p)));
         return self;
     }
 
@@ -136,13 +139,14 @@ const NonDeter = struct {
 };
 
 pub fn main() !void {
+    try autoTest.testRNG(MyRNG(), 20, 2 << (1 << 5), 1 << 2, .{}, alloc);
     // const config = NonDeter.Config{
     //     .mix = 3,
     //     .shift = 47,
     //     .lcg = false,
     // };
     // try testing(NonDeter, config);
-    try autoConfig();
+    // try autoConfig();
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
