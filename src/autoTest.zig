@@ -30,8 +30,10 @@ pub fn testRNG(
         defer tester.deinit();
         for (ordersTally[0..activeOrders]) |*tally, order| {
             var subTests = try tester.next();
-            for (subTests.iterator()) |pair| {
-                if (tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*, runCount) >= threshold) {
+            var iter = subTests.iterator();
+            while (iter.next()) |pair| {
+                const report = try tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*, runCount);
+                if (report >= threshold) {
                     activeOrders = order;
                     continue :runLoop;
                 }
@@ -39,8 +41,8 @@ pub fn testRNG(
         }
     }
     if (activeOrders == 0) return Score{ .order = 0, .fault = math.inf_f64 };
-    var faultSum: f64 = ordersTally[0].conclude();
-    for (ordersTally[1..activeOrders]) |*tally, order| {
+    var faultSum: f64 = 0.0;
+    for (ordersTally[0..activeOrders]) |*tally, order| {
         const value = tally.conclude();
         if (faultSum + value >= threshold) {
             return Score{ .order = order + 9, .fault = faultSum };
@@ -58,18 +60,19 @@ const Tally = struct {
         return Self{ .map = ManagedStringHashMap(TallyData).init(alloc), .runs = runs };
     }
 
-    pub fn putAndReport(self: *Self, name: []const u8, result: f64, count: usize) f64 {
+    pub fn putAndReport(self: *Self, name: []const u8, result: f64, count: usize) !f64 {
         if (!self.map.contains(name)) {
-            try self.map.put(name, try TallyData.init(count, self.map.allocator()));
+            try self.map.put(name, TallyData.init(count));
         }
-        return self.map.get(name).?.putReport(result);
+        return self.map.getPtr(name).?.putReport(result);
     }
 
     pub fn conclude(self: *Self) f64 {
         defer self.map.deinit();
         var worstResult: f64 = 0.0;
-        for (self.map.iterator()) |data| {
-            const value = data.conclude(self.map.allocator());
+        var iter = self.map.iterator();
+        while (iter.next()) |pair| {
+            const value = pair.value_ptr.report();
             if (worstResult < value) worstResult = value;
         }
         return worstResult;
@@ -81,103 +84,44 @@ const Tally = struct {
 };
 
 const TallyData = struct {
-    results: []f64,
-    negIndex: usize,
+    count: f64,
 
-    posIndex: usize = 0,
+    sum: f64 = 0,
 
-    pub fn init(count: usize, alloc: Allocator) !Self {
-        const results = try alloc.alloc(f64, count);
-        mem.set(f64, results, 0.5);
-        return Self{ .results = results, .negIndex = count };
+    pub fn init(count: usize) Self {
+        return Self{ .count = @intToFloat(f64, count) };
     }
 
     pub fn putReport(self: *Self, value: f64) f64 {
-        if (value < 0.0) {
-            self.negIndex -= 1;
-            self.results[self.negIndex] = -value;
-        }
-        self.results[self.posIndex] = value;
-        self.posIndex += 1;
+        if (value == math.nan_f64) return math.inf_f64;
+        self.sum += 1.0 / value + if (value < 0.0) @as(f64, 2.0) else -2.0;
         return self.report();
     }
 
-    pub fn conclude(self: *Self, alloc: Allocator) f64 {
-        defer alloc.free(self.results);
-        return self.report();
+    pub fn report(self: *Self) f64 {
+        return @fabs(self.sum / self.count);
     }
 
     // -------------------------------- Internal --------------------------------
 
-    fn report(self: *Self) f64 {
-        const countPos = self.posIndex;
-        const countNeg = self.results.len - self.negIndex;
-        const averagePos = Self.sliceMuliplySum(self.results[0..countPos], 1 / countPos);
-        const averageNeg = Self.sliceMuliplySum(self.results[self.negIndex..], 1 / countNeg);
-
-        var average = @intToFloat(f64, self.results.len - countPos - countNeg) * 0.5;
-        if (averageNeg / countNeg < averagePos / countPos) {
-            average += (1 - averagePos) * countPos;
-            average += averageNeg * countNeg;
-        } else {
-            average += averagePos * countPos;
-            average += (1 - averageNeg) * countNeg;
-        }
-        average /= self.results.len; // TODO: divide earlier
-
-        if (average > 0.5) std.debug.print("AVERAGE: {}({})", .{ average, self.results });
-        const biased = 1 / average;
-        return biased - 2;
-    }
-
-    fn sliceMuliplySum(slice: []f64, value: f64) f64 {
-        var result: f64 = 0.0;
-        for (slice) |v| result += v * value;
-        return result;
-    }
-
     const Self = @This();
 };
 
-pub fn fault(result: f64) f64 {
-    if (result == math.nan_f64) return math.inf_f64;
-    const value = @fabs(result); // best = 0.5, worst = 0
-    const biased = 1 / value; //    best = 2.0, worst = inf
-    return biased - 2; //           best = 0.0, worst = inf
-}
+// pub fn fault(result: f64) f64 {
+//     if (result == math.nan_f64) return math.inf_f64;
+//     const value = @fabs(result); // best = 0.5, worst = 0
+//     const biased = 1 / value; //    best = 2.0, worst = inf
+//     return biased - 2; //           best = 0.0, worst = inf
+// }
 
-pub fn worst(tests: SubTests, alloc: Allocator) !SubTest { // TODO: delete?
-    var iter = tests.iterator();
-    var result = iter.next() orelse unreachable;
-    while (true) {
-        const pair = iter.next() orelse break;
-        if (@fabs(pair.value_ptr.*) < @fabs(result.value_ptr.*)) result = pair;
-    }
-    return SubTest.init(result.key_ptr.*, result.value_ptr.*, alloc);
-}
-
-// pub fn testRNG(
-//     comptime RNG: type,
-//     comptime maxOrder: usize,
-//     comptime threshold: f64,
-//     config: RNG.Config,
-//     allocator: Allocator,
-// ) !Score {
-//     if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
-
-//     var driver = try TestDriver(RNG).init(0, config, allocator);
-//     defer driver.deinit();
-//     var sum = 1 / @fabs((try driver.reportWorst()).result);
-//     if (sum >= threshold) return Score{ .order = 10, .fault = sum };
-//     var o: usize = 11;
-//     while (o < maxOrder) {
-//         defer o += 1;
-//         const fault = 1 / @fabs((try driver.reportWorst()).result);
-//         if (sum + fault >= threshold) {
-//             break;
-//         } else sum += fault;
+// pub fn worst(tests: SubTests, alloc: Allocator) !SubTest { // TODO: delete?
+//     var iter = tests.iterator();
+//     var result = iter.next() orelse unreachable;
+//     while (true) {
+//         const pair = iter.next() orelse break;
+//         if (@fabs(pair.value_ptr.*) < @fabs(result.value_ptr.*)) result = pair;
 //     }
-//     return Score{ .order = o - 1, .fault = sum };
+//     return SubTest.init(result.key_ptr.*, result.value_ptr.*, alloc);
 // }
 
 fn TestDriver(comptime RNG: type) type {
@@ -254,9 +198,7 @@ fn TestDriver(comptime RNG: type) type {
             // Parse readBuffer
             while (self.readIndex < readLen) {
                 defer self.readIndex += 1;
-                if (self.readBuffer[self.readIndex] != '\n') {
-                    continue;
-                }
+                if (self.readBuffer[self.readIndex] != '\n') continue;
                 if (try self.parseLine(self.readBuffer[lineStart..self.readIndex])) return false;
                 lineStart = self.readIndex + 1;
             }
@@ -264,7 +206,6 @@ fn TestDriver(comptime RNG: type) type {
             // Make space
             mem.copy(u8, self.readBuffer[0..], self.readBuffer[lineStart..readLen]);
             self.readIndex -= lineStart;
-            // std.debug.print("{s}\n", .{self.readBuffer[0..self.readIndex]});
             return true;
         }
 
@@ -272,28 +213,29 @@ fn TestDriver(comptime RNG: type) type {
             // If line is empty
             if (line.len == 0) return self.subTests.count() > 0;
 
-            // Ignore if un-indented or table header
-            if (!mem.eql(u8, line[0..2], "  ") or mem.eql(u8, line[2..11], "Test Name")) {
-                return false;
+            // if un-indented and not table header
+            if (mem.eql(u8, line[0..2], "  ") and !mem.eql(u8, line[2..11], "Test Name")) {
+                // Skip indentation
+                var l: usize = 2;
+
+                // Find test name
+                while (line[l] != ' ') l += 1;
+                const testName = line[2..l];
+
+                try self.subTests.put(testName, self.readResult(line[l..]));
             }
+            return false;
+        }
 
-            // Skip indentation
-            var l: usize = 2;
-
-            // Find test name
-            while (line[l] != ' ') l += 1;
-            const testName = line[2..l];
+        fn readResult(line: []const u8) f64 {
+            var l = 0;
 
             // Find 'p'
             while (line[l] != 'p') {
                 defer l += 1;
 
                 // When instead of 'p' there is "fail" or "pass"
-                if (line[l] == '"') {
-                    const value: f64 = if (line[l + 1] == 'f') 0 else 0.5;
-                    try self.subTests.put(testName, value);
-                    return false;
-                }
+                if (line[l] == '"') return if (line[l + 1] == 'f') 0.0 else 0.5;
             }
 
             // Jump after '='
@@ -307,10 +249,7 @@ fn TestDriver(comptime RNG: type) type {
             const trailingChar = line[l - 1];
 
             // If p == "nan"
-            if (trailingChar == 'n') {
-                try self.subTests.put(testName, math.nan_f64);
-                return false;
-            }
+            if (trailingChar == 'n') return math.nan_f64;
 
             var trailingNumber: f64 = charToF64(trailingChar);
             var trailingDigitCount: f64 = 1;
@@ -332,18 +271,12 @@ fn TestDriver(comptime RNG: type) type {
             const nonDigitChar = line[nonDigitIndex];
 
             // If p == '0' or '1'
-            if (nonDigitChar == ' ') {
-                const value = if (trailingNumber == 1) @as(f64, -0.0) else @as(f64, 0.0);
-                try self.subTests.put(testName, value);
-                return false;
-            }
+            if (nonDigitChar == ' ') return if (trailingNumber == 1) -0.0 else 0.0;
 
             // If p == normal value: "0.188"
             if (nonDigitChar == '.') {
-                var value = trailingNumber * math.pow(f64, 10, -trailingDigitCount);
-                if (value >= 0.5) value -= 1.0;
-                try self.subTests.put(testName, value);
-                return false;
+                const value = trailingNumber * math.pow(f64, 10, -trailingDigitCount);
+                return if (value > 0.5) value - 1.0 else value;
             }
 
             // p must be in scientific notation
@@ -357,27 +290,73 @@ fn TestDriver(comptime RNG: type) type {
             }
 
             var value = coefficient * math.pow(f64, 10, -trailingNumber);
-            if (line[symbolIndex] == '-') value = -value;
-            try self.subTests.put(testName, value);
-            return false;
+            return if (line[symbolIndex] == '-') -value else value;
         }
 
         const Self = @This();
     };
 }
 
-pub const Score = struct {
-    order: usize,
-    fault: f64,
+pub const Score = struct { // TODO: TestScore?
+    data: u39, // 6bits for order, 33 bits for fault
 
-    pub fn worseThan(a: Score, b: Score) bool {
-        if (a.order == b.order) return a.fault > b.fault;
-        return a.order < b.order;
+    pub fn init(order: u6, fault: SubTestFault) Self {
+        const value = 1 << 33 - @floatToInt(u39, fault.data);
+        return Self{ .data = @intCast(u39, order) << 33 | value };
     }
+
+    // -------------------------------- Internal --------------------------------
+    const Self = @This();
 };
 
-pub const SubTests = ManagedStringHashMap(f64);
+pub const SubTestFault = struct {
+    data: f64,
 
+    pub fn init(result: SubTestResult) Self {
+        if (result.data == math.nan_f64) return Self{ .data = math.inf_f64 };
+        return Self{ .data = 1 / @fabs(result.data) - 2 };
+    }
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const SubTests = ManagedStringHashMap(SubTestResult);
+
+// pub const SubTest = struct {
+//     name: []const u8,
+//     result: SubTestResult,
+//     alloc: Allocator,
+
+//     pub fn init(name: []const u8, result: SubTestResult, alloc: Allocator) !Self {
+//         return Self{ .name = try alloc.dupe(u8, name), .result = result, .alloc = alloc };
+//     }
+
+//     pub fn deinit(self: *Self) void {
+//         self.alloc.free(self.name);
+//     }
+
+//     // -------------------------------- Internal --------------------------------
+
+//     const Self = @This();
+// };
+
+pub const SubTestResult = struct {
+    data: f64,
+
+    pub fn init(raw: f64) Self {
+        if (raw == math.nan_f64) return Self{ .data = math.nan_f64 };
+        std.debug.assert(raw > -0.5 and raw <= 0.5);
+        return Self{ .data = raw };
+    }
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+/// StringHashMap where keys are managed.
 pub fn ManagedStringHashMap(comptime T: type) type {
     return struct {
         map: StringHashMap(T),
@@ -390,6 +369,11 @@ pub fn ManagedStringHashMap(comptime T: type) type {
             return self.map.allocator;
         }
 
+        pub fn contains(self: *Self, name: []const u8) bool {
+            return self.map.contains(name);
+        }
+
+        /// Puts `value` into map, dupes the key if not present.
         pub fn put(self: *Self, key: []const u8, value: T) !void {
             if (self.map.contains(key)) {
                 self.map.putAssumeCapacity(key, value);
@@ -398,8 +382,8 @@ pub fn ManagedStringHashMap(comptime T: type) type {
             try self.map.putNoClobber(try self.map.allocator.dupe(u8, key), value);
         }
 
-        pub fn get(self: *Self, name: []const u8) ?T {
-            return self.map.get(name);
+        pub fn getPtr(self: *Self, name: []const u8) ?*T {
+            return self.map.getPtr(name);
         }
 
         pub fn count(self: *Self) StringHashMap(T).Size {
@@ -410,10 +394,12 @@ pub fn ManagedStringHashMap(comptime T: type) type {
             return self.map.iterator();
         }
 
+        /// Frees both the map and all the keys.
         pub fn deinit(self: *Self) void {
             defer self.map.deinit();
-            for (self.map.keyIterator()) |key| {
-                self.map.allocator.free(key);
+            var iter = self.map.keyIterator();
+            while (iter.next()) |key| {
+                self.map.allocator.free(key.*);
             }
         }
 
@@ -425,29 +411,13 @@ pub fn ManagedStringHashMap(comptime T: type) type {
     };
 }
 
-pub const SubTest = struct {
-    name: []const u8,
-    result: f64,
-    alloc: Allocator,
-
-    pub fn init(name: []const u8, result: f64, alloc: Allocator) !Self {
-        return Self{ .name = try alloc.dupe(u8, name), .result = result, .alloc = alloc };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.alloc.free(self.name);
-    }
-
-    // -------------------------------- Internal --------------------------------
-
-    const Self = @This();
-};
-
+/// Returns char as f64.
 fn charToF64(char: u8) f64 {
     debug.assert(charIsDigit(char));
     return @intToFloat(f64, char - '0');
 }
 
+/// Returns true if char is '0' trough '9'.
 fn charIsDigit(char: u8) bool {
     return char >= '0' and char <= '9';
 }

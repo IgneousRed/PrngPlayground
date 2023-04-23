@@ -38,7 +38,7 @@ fn MyRNG() type {
         }
 
         pub fn gen(self: *Self) Out {
-            self.state *%= dev.harmonic64LCG64;
+            self.state *%= dev.harmonicLCG(State);
             self.state +%= dev.golden64;
             return @truncate(Out, self.state >> 32);
         }
@@ -92,12 +92,15 @@ const NonDeter = struct {
     config: Config,
 
     pub fn init(seed: State, config: Config) Self {
+        for (config) |conf, c| {
+            if (conf >= configSize[c]) @panic("AAAAAAAAA");
+        }
         var self = Self{ .state = seed *% dev.oddPhiFraction(State), .config = config };
         const heap = alloc.create(u1) catch unreachable;
         alloc.destroy(heap);
         self.mix(Self.time());
-        self.mix(@truncate(State, @ptrToInt(heap)));
         self.mix(@truncate(State, @ptrToInt(&heap)));
+        self.mix(@truncate(State, @ptrToInt(heap)));
         return self;
     }
 
@@ -106,29 +109,25 @@ const NonDeter = struct {
         return @intCast(Out, self.state >> @bitSizeOf(State) - @bitSizeOf(Out));
     }
 
-    pub const Config = struct {
-        mix: usize,
-        shift: usize,
-        lcg: bool,
-    };
-
+    pub const bestKnown = Config{ 0, 3, 46 };
+    pub const configSize = Config{ 2, 4, 62 };
+    pub const Config = [3]usize;
     pub const State = u64;
-
     pub const Out = u32;
 
     // -------------------------------- Internal --------------------------------
 
     fn mix(self: *Self, value: State) void {
         const t = value;
-        switch (self.config.mix) {
+        switch (self.config[1]) {
             0 => self.state ^= t,
             1 => self.state +%= t,
             2 => self.state -%= t,
             3 => self.state = t -% self.state,
-            else => @panic("Mix must be < 4"),
+            else => unreachable,
         }
-        self.state ^= self.state >> math.log2_int(State, @intCast(State, self.config.shift));
-        self.state *%= if (self.config.lcg) dev.harmonicLCG(State) else dev.harmonicMCG(State);
+        self.state ^= self.state >> math.log2_int(State, @intCast(State, self.config[2] + 1));
+        self.state *%= if (self.config[0] == 1) dev.harmonicLCG(State) else dev.harmonicMCG(State);
     }
 
     fn time() State {
@@ -137,9 +136,8 @@ const NonDeter = struct {
 
     const Self = @This();
 };
-
 pub fn main() !void {
-    try autoTest.testRNG(MyRNG(), 20, 2 << (1 << 5), 1 << 2, .{}, alloc);
+    std.debug.print("{any}", .{try autoTest.testRNG(MyRNG(), 20, 1 << 33, 1 << 2, .{}, alloc)});
     // const config = NonDeter.Config{
     //     .mix = 3,
     //     .shift = 47,
