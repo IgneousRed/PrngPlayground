@@ -28,31 +28,33 @@ fn avrDist(a: f64, b: f64) f64 {
     } else return math.pow(f64, avr, 2) / 2;
 }
 
-fn MyRNG() type {
-    return struct {
-        state: State,
+const PRNG = struct {
+    state: State,
+    config: Config,
 
-        pub fn init(asd: State, config: Config) Self {
-            _ = config;
-            return Self{ .state = asd *% dev.oddPhiFraction(State) };
+    pub fn init(seed: State, config: Config) Self {
+        for (config) |conf, c| {
+            if (conf >= configSize[c]) @panic("AAAAAAAAA");
         }
+        return Self{ .state = seed *% dev.oddPhiFraction(State), .config = config };
+    }
 
-        pub fn gen(self: *Self) Out {
-            self.state *%= dev.harmonicLCG(State);
-            self.state +%= dev.golden64;
-            return @truncate(Out, self.state >> 32);
-        }
+    pub fn gen(self: *Self) Out {
+        self.state *%= if (self.config[0] == 1) dev.harmonicLCG(State) else dev.harmonicMCG(State);
+        return @intCast(Out, self.state >> @bitSizeOf(State) - @bitSizeOf(Out));
+    }
 
-        pub const Config = struct {};
+    pub const bestKnown = Config{ 0, 3, 46 };
+    pub const configSize = Config{ 2, 4, 62 };
+    pub const configName = [][]const u8{ "LCG", "Mix", "Shift" };
+    pub const Config = [3]usize;
+    pub const State = u32;
+    pub const Out = u16;
 
-        pub const State = u64;
-        pub const Out = u32;
+    // -------------------------------- Internal --------------------------------
 
-        // -------------------------------- Internal --------------------------------
-
-        const Self = @This();
-    };
-}
+    const Self = @This();
+};
 const EntropyRNG = struct {
     state: State,
 
@@ -109,8 +111,9 @@ const NonDeter = struct {
         return @intCast(Out, self.state >> @bitSizeOf(State) - @bitSizeOf(Out));
     }
 
-    pub const bestKnown = Config{ 0, 3, 46 };
-    pub const configSize = Config{ 2, 4, 62 };
+    pub const bestKnown = Config{ 0, 0, 47 }; // Round: 4, Order: 20, Quality: 16.51653058164156
+    pub const configSize = Config{ 2, 4, 63 };
+    pub const configName = [_][]const u8{ "LCG", "Mix", "Shift" };
     pub const Config = [3]usize;
     pub const State = u64;
     pub const Out = u32;
@@ -126,7 +129,7 @@ const NonDeter = struct {
             3 => self.state = t -% self.state,
             else => unreachable,
         }
-        self.state ^= self.state >> math.log2_int(State, @intCast(State, self.config[2] + 1));
+        self.state ^= self.state >> @intCast(std.math.Log2Int(State), self.config[2] + 1);
         self.state *%= if (self.config[0] == 1) dev.harmonicLCG(State) else dev.harmonicMCG(State);
     }
 
@@ -137,7 +140,7 @@ const NonDeter = struct {
     const Self = @This();
 };
 pub fn main() !void {
-    std.debug.print("{any}", .{try autoTest.testRNG(MyRNG(), 20, 1 << 33, 1 << 2, .{}, alloc)});
+    try autoTest.configRNG(NonDeter, 20, 0, true, alloc);
     // const config = NonDeter.Config{
     //     .mix = 3,
     //     .shift = 47,
@@ -149,69 +152,6 @@ pub fn main() !void {
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
     // time();
-}
-fn autoConfig() !void {
-    var config = NonDeter.Config{
-        .mix = 3,
-        .lcg = false,
-        .shift = 47,
-    };
-    var round: usize = 0;
-    while (true) {
-        defer round += 1;
-        std.debug.print("Round {}\n", .{round});
-        var j: usize = 0;
-        while (j < 2) {
-            defer j += 1;
-            // Mix
-            var best = autoTest.Score{ .order = 0, .fault = math.inf_f64 };
-            var bestI: usize = undefined;
-            var i: usize = 0;
-            while (i < 4) {
-                defer i += 1;
-                config.mix = i;
-                const result = try autoTest.testRNG(NonDeter, 10, 2 << (1 << 5), config, alloc);
-                std.debug.print("  Mix {}, Score {}\n", .{ config.mix, result });
-                if (best.worseThan(result)) {
-                    best = result;
-                    bestI = i;
-                }
-            }
-            config.mix = bestI;
-            std.debug.print("New Mix {}, Score {}\n", .{ config.mix, best });
-            // Lcg
-            config.lcg = false;
-            const resultF = try autoTest.testRNG(NonDeter, 10, 2 << (1 << 5), config, alloc);
-            std.debug.print("  Lcg false, Score {}\n", .{resultF});
-            config.lcg = true;
-            const resultT = try autoTest.testRNG(NonDeter, 10, 2 << (1 << 5), config, alloc);
-            std.debug.print("  Lcg true, Score {}\n", .{resultT});
-            if (resultF.worseThan(resultT)) {
-                config.lcg = true;
-                best = resultT;
-            } else {
-                config.lcg = false;
-                best = resultF;
-            }
-            std.debug.print("New Lcg {}, Score {}\n", .{ config.lcg, best });
-        }
-        // Shift
-        var best = autoTest.Score{ .order = 0, .fault = math.inf_f64 };
-        var bestI: usize = undefined;
-        var i: usize = 2;
-        while (i < 64) {
-            defer i += 1;
-            config.shift = i;
-            const result = try autoTest.testRNG(NonDeter, 10, 2 << (1 << 5), config, alloc);
-            std.debug.print("  Shift {}, Score {}\n", .{ config.shift, result });
-            if (best.worseThan(result)) {
-                best = result;
-                bestI = i;
-            }
-        }
-        config.shift = bestI;
-        std.debug.print("Final Mix {}, Lcg {}, Shift {}, Score {}\n", .{ config.mix, config.lcg, config.shift, best });
-    }
 }
 fn testing(comptime RNG: type, config: RNG.Config) !void {
     var child = std.ChildProcess.init(&[_][]const u8{

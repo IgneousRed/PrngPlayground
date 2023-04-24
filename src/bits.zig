@@ -24,7 +24,7 @@ pub fn shiftSize(comptime bits: comptime_int) comptime_int {
 }
 
 /// Casts value into right type for shifting T.
-pub fn shiftCast(comptime bits: comptime_int, value: anytype) ShiftType(bits) {
+pub fn ShiftCast(comptime bits: comptime_int, value: anytype) ShiftType(bits) {
     return @intCast(ShiftType(bits), value);
 }
 

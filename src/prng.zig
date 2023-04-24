@@ -10,7 +10,7 @@ pub fn hash64(bytes: []const u8) u64 {
     var bytesUsed: usize = 0;
     while (bytesUsed < (bytes.len + 1) & ~@as(usize, 7)) {
         const newBytes = bytesUsed + 8;
-        hash64Combine(&result, std.mem.readIntSliceNative(u64, bytes[bytesUsed..newBytes]));
+        hash64Combine(&result, std.mem.readIntSliceLittle(u64, bytes[bytesUsed..newBytes]));
         bytesUsed = newBytes;
     }
     // if (bytesUsed < bytes.len) {

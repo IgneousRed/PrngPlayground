@@ -10,15 +10,62 @@ const BoundedArray = std.BoundedArray;
 const rand = std.rand;
 const Random = rand.Random;
 
+pub const threshold = 1 << 33; // 8_589_934_592
+
+pub fn configRNG(
+    comptime RNG: type,
+    comptime maxOrder: u6,
+    roundStart: u5,
+    details: bool,
+    alloc: Allocator,
+) !void {
+    std.debug.print("Configuring: {s}, MaxOrder: {}, RoundStart: {}, BestKnown: {any}\n", .{
+        @typeName(RNG),
+        maxOrder,
+        roundStart,
+        RNG.bestKnown,
+    });
+    var config = RNG.bestKnown;
+    var round = roundStart;
+    while (true) {
+        defer round += 1;
+        const runs = @as(usize, 1) << round;
+        var best: Score = undefined;
+        for (config) |*conf, c| {
+            best = Score{};
+            var bestI: usize = 0;
+            var i: usize = 0;
+            while (i < RNG.configSize[c]) {
+                defer i += 1;
+                conf.* = i;
+                const result = try testRNG(RNG, maxOrder, runs, config, alloc);
+
+                const data = .{ RNG.configName[c], i, result.order, result.quality };
+                if (details) std.debug.print("    {s}: {}, order: {}, quality: {d}\n", data);
+
+                if (best.pack() < result.pack()) {
+                    best = result;
+                    bestI = i;
+                }
+            }
+            conf.* = bestI;
+
+            const data = .{ RNG.configName[c], bestI, best.order, best.quality };
+            if (details) std.debug.print("  Chosen {s}: {}, order: {}, quality: {d}\n", data);
+        }
+        const data = .{ round, config, best.order, best.quality };
+        std.debug.print("Round {}: Config: {any}, order: {}, quality: {d}\n", data);
+    }
+}
+
 pub fn testRNG(
     comptime RNG: type,
-    comptime maxOrder: usize,
-    comptime threshold: f64,
+    comptime maxOrder: u6,
     runCount: usize,
     config: RNG.Config,
     alloc: Allocator,
 ) !Score {
-    if (maxOrder < 10) return Score{ .order = 0, .fault = math.inf_f64 };
+    if (maxOrder < 10) return .{};
 
     var activeOrders = maxOrder - 9;
     var ordersTally = try alloc.alloc(Tally, activeOrders);
@@ -34,22 +81,64 @@ pub fn testRNG(
             while (iter.next()) |pair| {
                 const report = try tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*, runCount);
                 if (report >= threshold) {
-                    activeOrders = order;
+                    activeOrders = @intCast(u6, order);
                     continue :runLoop;
                 }
             }
         }
     }
-    if (activeOrders == 0) return Score{ .order = 0, .fault = math.inf_f64 };
+    if (activeOrders == 0) return .{};
     var faultSum: f64 = 0.0;
-    for (ordersTally[0..activeOrders]) |*tally, order| {
+    for (ordersTally[0..activeOrders]) |*tally, order| { // TODO: merge the two for loops
         const value = tally.conclude();
         if (faultSum + value >= threshold) {
-            return Score{ .order = order + 9, .fault = faultSum };
+            activeOrders = @intCast(u6, order);
+            break;
         }
         faultSum += value;
     }
-    return Score{ .order = activeOrders + 9, .fault = faultSum };
+    return Score.init(activeOrders + 9, .{ .data = faultSum });
+}
+pub fn testRNG_old(
+    comptime RNG: type,
+    comptime maxOrder: u6,
+    runCount: usize,
+    config: RNG.Config,
+    alloc: Allocator,
+) !Score {
+    if (maxOrder < 10) return .{};
+
+    var activeOrders = maxOrder - 9;
+    var ordersTally = try alloc.alloc(Tally, activeOrders);
+    for (ordersTally) |*tally| tally.* = try Tally.init(runCount, alloc);
+    var run: usize = 0;
+    runLoop: while (run < runCount) {
+        defer run += 1;
+        var tester = try TestDriver(RNG).init(@truncate(RNG.State, run), config, alloc);
+        defer tester.deinit();
+        for (ordersTally[0..activeOrders]) |*tally, order| {
+            var subTests = try tester.next();
+            var iter = subTests.iterator();
+            while (iter.next()) |pair| {
+                const report = try tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*, runCount);
+                if (report >= threshold) {
+                    activeOrders = @intCast(u6, order);
+                    continue :runLoop;
+                }
+            }
+        }
+    }
+    if (activeOrders == 0) return .{};
+    var faultSum: f64 = 0.0;
+    for (ordersTally[0..activeOrders]) |*tally, order| { // TODO: merge the two for loops
+        const value = tally.conclude();
+        if (faultSum + value >= threshold) {
+            activeOrders = @intCast(u6, order);
+            break;
+        }
+        faultSum += value;
+    }
+    return Score.init(activeOrders + 9, .{ .data = faultSum });
 }
 
 const Tally = struct {
@@ -60,7 +149,7 @@ const Tally = struct {
         return Self{ .map = ManagedStringHashMap(TallyData).init(alloc), .runs = runs };
     }
 
-    pub fn putAndReport(self: *Self, name: []const u8, result: f64, count: usize) !f64 {
+    pub fn putAndReport(self: *Self, name: []const u8, result: SubTestResult, count: usize) !f64 {
         if (!self.map.contains(name)) {
             try self.map.put(name, TallyData.init(count));
         }
@@ -92,9 +181,9 @@ const TallyData = struct {
         return Self{ .count = @intToFloat(f64, count) };
     }
 
-    pub fn putReport(self: *Self, value: f64) f64 {
-        if (value == math.nan_f64) return math.inf_f64;
-        self.sum += 1.0 / value + if (value < 0.0) @as(f64, 2.0) else -2.0;
+    pub fn putReport(self: *Self, result: SubTestResult) f64 {
+        if (result.data == math.nan_f64) return math.inf_f64;
+        self.sum += 1.0 / result.data + if (result.data < 0.0) @as(f64, 2.0) else -2.0;
         return self.report();
     }
 
@@ -199,8 +288,23 @@ fn TestDriver(comptime RNG: type) type {
             while (self.readIndex < readLen) {
                 defer self.readIndex += 1;
                 if (self.readBuffer[self.readIndex] != '\n') continue;
-                if (try self.parseLine(self.readBuffer[lineStart..self.readIndex])) return false;
-                lineStart = self.readIndex + 1;
+                defer lineStart = self.readIndex + 1;
+                const line = self.readBuffer[lineStart..self.readIndex];
+
+                // If line is empty
+                if (line.len == 0) if (self.subTests.count() > 0) return false else continue;
+
+                // if un-indented and not table header
+                if (mem.eql(u8, line[0..2], "  ") and !mem.eql(u8, line[2..11], "Test Name")) {
+                    // Skip indentation
+                    var l: usize = 2;
+
+                    // Find test name
+                    while (line[l] != ' ') l += 1;
+                    const testName = line[2..l];
+
+                    try self.subTests.put(testName, .{ .data = Self.readResult(line[l..]) });
+                }
             }
 
             // Make space
@@ -209,26 +313,8 @@ fn TestDriver(comptime RNG: type) type {
             return true;
         }
 
-        fn parseLine(self: *Self, line: []const u8) !bool {
-            // If line is empty
-            if (line.len == 0) return self.subTests.count() > 0;
-
-            // if un-indented and not table header
-            if (mem.eql(u8, line[0..2], "  ") and !mem.eql(u8, line[2..11], "Test Name")) {
-                // Skip indentation
-                var l: usize = 2;
-
-                // Find test name
-                while (line[l] != ' ') l += 1;
-                const testName = line[2..l];
-
-                try self.subTests.put(testName, self.readResult(line[l..]));
-            }
-            return false;
-        }
-
         fn readResult(line: []const u8) f64 {
-            var l = 0;
+            var l: usize = 0;
 
             // Find 'p'
             while (line[l] != 'p') {
@@ -298,14 +384,19 @@ fn TestDriver(comptime RNG: type) type {
 }
 
 pub const Score = struct { // TODO: TestScore?
-    data: u39, // 6bits for order, 33 bits for fault
+    order: u6 = 0,
+    quality: f64 = 0,
 
     pub fn init(order: u6, fault: SubTestFault) Self {
-        const value = 1 << 33 - @floatToInt(u39, fault.data);
-        return Self{ .data = @intCast(u39, order) << 33 | value };
+        return Self{ .order = order, .quality = 33 - math.log2(fault.data + 1) };
+    }
+
+    pub fn pack(self: Self) f64 {
+        return @intToFloat(f64, self.order) * 33 + self.quality;
     }
 
     // -------------------------------- Internal --------------------------------
+
     const Self = @This();
 };
 
