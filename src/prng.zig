@@ -1,7 +1,7 @@
 const std = @import("std");
 const lib = @import("lib.zig");
 const bits = @import("bits.zig");
-const dev = @import("prng_dev.zig");
+const dev = @import("rng_dev.zig");
 
 /// hash64 calculates a seemingly random u64 from bytes. Lower bits are mixed better,
 /// if possible put better entropy first.

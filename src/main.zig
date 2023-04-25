@@ -1,9 +1,10 @@
 const std = @import("std");
 const lib = @import("lib.zig");
 const prng = @import("prng.zig");
-const dev = @import("prng_dev.zig");
+const rng = @import("rng.zig");
+const dev = @import("rng_dev.zig");
 const bits = @import("bits.zig");
-const autoTest = @import("autoTest.zig");
+const tRNG = @import("testingRNG.zig");
 const rand = std.rand;
 const math = std.math;
 const builtin = @import("builtin");
@@ -27,126 +28,14 @@ fn avrDist(a: f64, b: f64) f64 {
         return 1 - math.pow(f64, 2 - avr, 2) / 2;
     } else return math.pow(f64, avr, 2) / 2;
 }
-
-const PRNG = struct {
-    state: State,
-    config: Config,
-
-    pub fn init(seed: State, config: Config) Self {
-        for (config) |conf, c| {
-            if (conf >= configSize[c]) @panic("AAAAAAAAA");
-        }
-        return Self{ .state = seed *% dev.oddPhiFraction(State), .config = config };
-    }
-
-    pub fn gen(self: *Self) Out {
-        self.state *%= if (self.config[0] == 1) dev.harmonicLCG(State) else dev.harmonicMCG(State);
-        return @intCast(Out, self.state >> @bitSizeOf(State) - @bitSizeOf(Out));
-    }
-
-    pub const bestKnown = Config{ 0, 3, 46 };
-    pub const configSize = Config{ 2, 4, 62 };
-    pub const configName = [][]const u8{ "LCG", "Mix", "Shift" };
-    pub const Config = [3]usize;
-    pub const State = u32;
-    pub const Out = u16;
-
-    // -------------------------------- Internal --------------------------------
-
-    const Self = @This();
-};
-const EntropyRNG = struct {
-    state: State,
-
-    pub fn init(allocator: std.mem.Allocator) !Self {
-        var self = try Self{ .state = Self.time() };
-        const p = allocator.create(u1);
-        allocator.destroy(p);
-        self.mix(@truncate(State, @ptrToInt(&p)));
-        self.mix(@truncate(State, @ptrToInt(p)));
-        return self;
-    }
-
-    pub fn gen(self: *Self) Out {
-        self.mix(Self.time());
-        return @intCast(Out, self.state >> @bitSizeOf(State) - @bitSizeOf(Out));
-    }
-
-    pub const State = u64;
-    pub const Out = u32;
-
-    // -------------------------------- Internal --------------------------------
-
-    fn mix(self: *Self, value: State) void {
-        self.state = value -% self.state;
-        self.state ^= self.state >> 47;
-        self.state *%= dev.harmonicMCG(State);
-    }
-
-    fn time() State {
-        return @truncate(State, @intCast(u128, std.time.nanoTimestamp()));
-    }
-
-    const Self = @This();
-};
-const NonDeter = struct {
-    state: State,
-    config: Config,
-
-    pub fn init(seed: State, config: Config) Self {
-        for (config) |conf, c| {
-            if (conf >= configSize[c]) @panic("AAAAAAAAA");
-        }
-        var self = Self{ .state = seed *% dev.oddPhiFraction(State), .config = config };
-        const heap = alloc.create(u1) catch unreachable;
-        alloc.destroy(heap);
-        self.mix(Self.time());
-        self.mix(@truncate(State, @ptrToInt(&heap)));
-        self.mix(@truncate(State, @ptrToInt(heap)));
-        return self;
-    }
-
-    pub fn gen(self: *Self) Out {
-        self.mix(Self.time());
-        return @intCast(Out, self.state >> @bitSizeOf(State) - @bitSizeOf(Out));
-    }
-
-    pub const bestKnown = Config{ 0, 0, 47 }; // Round: 4, Order: 20, Quality: 16.51653058164156
-    pub const configSize = Config{ 2, 4, 63 };
-    pub const configName = [_][]const u8{ "LCG", "Mix", "Shift" };
-    pub const Config = [3]usize;
-    pub const State = u64;
-    pub const Out = u32;
-
-    // -------------------------------- Internal --------------------------------
-
-    fn mix(self: *Self, value: State) void {
-        const t = value;
-        switch (self.config[1]) {
-            0 => self.state ^= t,
-            1 => self.state +%= t,
-            2 => self.state -%= t,
-            3 => self.state = t -% self.state,
-            else => unreachable,
-        }
-        self.state ^= self.state >> @intCast(std.math.Log2Int(State), self.config[2] + 1);
-        self.state *%= if (self.config[0] == 1) dev.harmonicLCG(State) else dev.harmonicMCG(State);
-    }
-
-    fn time() State {
-        return @truncate(State, @intCast(u128, std.time.nanoTimestamp()));
-    }
-
-    const Self = @This();
-};
 pub fn main() !void {
-    try autoTest.configRNG(NonDeter, 20, 0, true, alloc);
+    try tRNG.configRNG(rng.NonDeter32, 20, 3, true, true, alloc);
     // const config = NonDeter.Config{
     //     .mix = 3,
     //     .shift = 47,
     //     .lcg = false,
     // };
-    // try testing(NonDeter, config);
+    // try testing(rng.Deter, rng.Deter.bestKnown);
     // try autoConfig();
     // try transitionTest();
     // mulXshSearch();
@@ -173,11 +62,11 @@ fn testing(comptime RNG: type, config: RNG.Config) !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    var rng = RNG.init(0, config);
+    var random = RNG.init(0, config);
     var buf: [1 << 16]RNG.Out = undefined;
     while (true) {
         for (buf) |*b| {
-            b.* = rng.gen();
+            b.* = random.gen();
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }

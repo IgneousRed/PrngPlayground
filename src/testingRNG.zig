@@ -3,7 +3,7 @@ const mem = std.mem;
 const os = std.os;
 const math = std.math;
 const debug = std.debug;
-const dev = @import("prng_dev.zig");
+const dev = @import("rng_dev.zig");
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
@@ -15,21 +15,23 @@ pub const threshold = 1 << 33; // 8_589_934_592
 pub fn configRNG(
     comptime RNG: type,
     comptime maxOrder: u6,
-    roundStart: u5,
+    round: u5,
     details: bool,
+    runForever: bool,
     alloc: Allocator,
 ) !void {
-    std.debug.print("Configuring: {s}, MaxOrder: {}, RoundStart: {}, BestKnown: {any}\n", .{
-        @typeName(RNG),
-        maxOrder,
-        roundStart,
-        RNG.bestKnown,
-    });
     var config = RNG.bestKnown;
-    var round = roundStart;
+    var roundCurrent = round;
     while (true) {
-        defer round += 1;
-        const runs = @as(usize, 1) << round;
+        defer roundCurrent += 1;
+        std.debug.print("round: {}, maxOrder: {}, configuring: {s}, bestKnown: {any}\n", .{
+            roundCurrent,
+            maxOrder,
+            @typeName(RNG),
+            config,
+        });
+        const timeStart = std.time.timestamp();
+        const runs = @as(usize, 1) << roundCurrent;
         var best: Score = undefined;
         for (config) |*conf, c| {
             best = Score{};
@@ -51,10 +53,18 @@ pub fn configRNG(
             conf.* = bestI;
 
             const data = .{ RNG.configName[c], bestI, best.order, best.quality };
-            if (details) std.debug.print("  Chosen {s}: {}, order: {}, quality: {d}\n", data);
+            if (details) std.debug.print("  {s}: {}, order: {}, quality: {d}\n", data);
         }
-        const data = .{ round, config, best.order, best.quality };
-        std.debug.print("Round {}: Config: {any}, order: {}, quality: {d}\n", data);
+        const data = .{
+            roundCurrent,
+            config,
+            best.order,
+            best.quality,
+            std.time.timestamp() - timeStart,
+        };
+        std.debug.print("round{}: config: {any}, order: {}, quality: {d}, runtime: {}s\n", data);
+        std.debug.print("\n", .{});
+        if (!runForever) return;
     }
 }
 
@@ -79,7 +89,7 @@ pub fn testRNG(
             var subTests = try tester.next();
             var iter = subTests.iterator();
             while (iter.next()) |pair| {
-                const report = try tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*, runCount);
+                const report = try tally.putAndReport(pair.key_ptr.*, pair.value_ptr.*);
                 if (report >= threshold) {
                     activeOrders = @intCast(u6, order);
                     continue :runLoop;
@@ -142,18 +152,24 @@ pub fn testRNG_old(
 }
 
 const Tally = struct {
-    map: ManagedStringHashMap(TallyData),
-    runs: usize,
+    map: ManagedStringHashMap(f64),
+    countRcp: f64,
 
     pub fn init(runs: usize, alloc: Allocator) !Self {
-        return Self{ .map = ManagedStringHashMap(TallyData).init(alloc), .runs = runs };
+        return Self{
+            .map = ManagedStringHashMap(f64).init(alloc),
+            .countRcp = 1 / @intToFloat(f64, runs),
+        };
     }
 
-    pub fn putAndReport(self: *Self, name: []const u8, result: SubTestResult, count: usize) !f64 {
-        if (!self.map.contains(name)) {
-            try self.map.put(name, TallyData.init(count));
-        }
-        return self.map.getPtr(name).?.putReport(result);
+    pub fn putAndReport(self: *Self, name: []const u8, result: SubTestResult) !f64 {
+        if (result.data == math.nan_f64) return math.inf_f64;
+
+        if (!self.map.contains(name)) try self.map.put(name, 0.0); // TODO: GetOrPut?
+
+        const sum = self.map.getPtr(name).?;
+        sum.* += self.countRcp / result.data + if (result.data < 0.0) @as(f64, 2.0) else -2.0;
+        return @fabs(sum.*);
     }
 
     pub fn conclude(self: *Self) f64 {
@@ -161,34 +177,10 @@ const Tally = struct {
         var worstResult: f64 = 0.0;
         var iter = self.map.iterator();
         while (iter.next()) |pair| {
-            const value = pair.value_ptr.report();
+            const value = @fabs(pair.value_ptr.*);
             if (worstResult < value) worstResult = value;
         }
         return worstResult;
-    }
-
-    // -------------------------------- Internal --------------------------------
-
-    const Self = @This();
-};
-
-const TallyData = struct {
-    count: f64,
-
-    sum: f64 = 0,
-
-    pub fn init(count: usize) Self {
-        return Self{ .count = @intToFloat(f64, count) };
-    }
-
-    pub fn putReport(self: *Self, result: SubTestResult) f64 {
-        if (result.data == math.nan_f64) return math.inf_f64;
-        self.sum += 1.0 / result.data + if (result.data < 0.0) @as(f64, 2.0) else -2.0;
-        return self.report();
-    }
-
-    pub fn report(self: *Self) f64 {
-        return @fabs(self.sum / self.count);
     }
 
     // -------------------------------- Internal --------------------------------
