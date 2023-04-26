@@ -29,14 +29,13 @@ fn avrDist(a: f64, b: f64) f64 {
     } else return math.pow(f64, avr, 2) / 2;
 }
 pub fn main() !void {
-    try tRNG.configRNG(rng.NonDeter32, 20, 3, true, true, alloc);
+    try tRNG.configRNG(rng.NonDeter32Config, 20, 0, true, true, alloc);
     // const config = NonDeter.Config{
     //     .mix = 3,
     //     .shift = 47,
     //     .lcg = false,
     // };
-    // try testing(rng.Deter, rng.Deter.bestKnown);
-    // try autoConfig();
+    // try testing(rng.Mix64, rng.Mix64.bestKnown);
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
