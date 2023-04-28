@@ -10,7 +10,9 @@ const BoundedArray = std.BoundedArray;
 const rand = std.rand;
 const Random = rand.Random;
 
-pub const threshold = 1 << 33; // 8_589_934_592
+// TODO: Think about false positives and compare with default
+
+const threshold = 1 << 33; // 8_589_934_592
 
 pub fn configRNG(
     comptime RNG: type,
@@ -78,7 +80,7 @@ pub fn testRNG(
     var run: usize = 0;
     runLoop: while (run < runCount) {
         defer run += 1;
-        var tester = try TestDriver(RNG).init(@truncate(RNG.State, run), config, alloc);
+        var tester = try TestDriver(RNG).init(@truncate(RNG.Seed, run), config, alloc);
         defer tester.deinit();
         for (ordersTally[0..activeOrders]) |*tally, order| {
             var subTests = try tester.next();
@@ -172,7 +174,7 @@ fn TestDriver(comptime RNG: type) type {
         writeReady: bool = false,
         subTests: SubTests = undefined,
 
-        pub fn init(seed: RNG.State, config: RNG.Config, alloc: Allocator) !Self {
+        pub fn init(seed: RNG.Seed, config: RNG.Config, alloc: Allocator) !Self {
             var tester = std.ChildProcess.init(&[_][]const u8{
                 "/Users/gio/PractRand/RNG_test",
                 "stdin",
@@ -208,7 +210,7 @@ fn TestDriver(comptime RNG: type) type {
             self.subTests = SubTests.init(self.tester.allocator);
             while (try self.read()) {
                 if (!self.writeReady) for (self.writeBuffer) |*w| {
-                    w.* = self.rng.gen();
+                    w.* = self.rng.next();
                 };
                 self.writeReady = false;
                 self.writer.writeAll(mem.sliceAsBytes(self.writeBuffer)) catch {

@@ -28,20 +28,20 @@ fn avrDist(a: f64, b: f64) f64 {
         return 1 - math.pow(f64, 2 - avr, 2) / 2;
     } else return math.pow(f64, avr, 2) / 2;
 }
+
 pub fn main() !void {
-    try tRNG.configRNG(rng.NonDeter32Config, 20, 0, true, true, alloc);
-    // const config = NonDeter.Config{
-    //     .mix = 3,
-    //     .shift = 47,
-    //     .lcg = false,
-    // };
+    // try tRNG.configRNG(rng.NonDeter32Config, 20, 0, true, true, alloc);
     // try testing(rng.Mix64, rng.Mix64.bestKnown);
+    try testing(rng.MyRngSimple, 0);
+    // try testing(rng.MyRng, 0);
+    // try testing(rng.Xoroshiro128);
+    // try testing(rng.Xoshiro256);
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
     // time();
 }
-fn testing(comptime RNG: type, config: RNG.Config) !void {
+fn testing(comptime RNG: type, seed: RNG.Seed) !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
@@ -61,11 +61,11 @@ fn testing(comptime RNG: type, config: RNG.Config) !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    var random = RNG.init(0, config);
+    var random = RNG.init(seed);
     var buf: [1 << 16]RNG.Out = undefined;
     while (true) {
         for (buf) |*b| {
-            b.* = random.gen();
+            b.* = random.next();
         }
         try stdIn.writeAll(std.mem.asBytes(&buf));
     }
