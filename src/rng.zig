@@ -171,9 +171,6 @@ pub const MyRng = struct {
         self.state +%= self.counter;
         self.state ^= self.state >> 27;
         self.state *%= dev.harmonicLCG(Out);
-        // self.state *%= dev.harmonicLCG(Out);
-        // self.state ^= self.state >> 27;
-        // self.state +%= self.counter;
 
         return self.state;
     }
