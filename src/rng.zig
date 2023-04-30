@@ -2,6 +2,7 @@ const std = @import("std");
 const rand = std.rand;
 const Random = rand.Random;
 const bits = @import("bits.zig");
+const lib = @import("lib.zig");
 const dev = @import("rng_dev.zig");
 
 pub const Isaac64 = struct {
@@ -159,10 +160,11 @@ pub const Xoshiro256 = struct {
 pub const MyRng = struct {
     state: Out,
     counter: Out,
+    config: Config,
 
-    pub fn init(seed: Seed) Self {
+    pub fn init(seed: Seed, config: Config) Self {
         const phi = seed *% dev.oddPhiFraction(Seed);
-        return .{ .state = bits.highBits(64, phi), .counter = bits.low(64, phi) };
+        return .{ .state = bits.highBits(64, phi), .counter = bits.low(64, phi), .config = config };
     }
 
     pub fn next(self: *Self) Out {
@@ -175,7 +177,11 @@ pub const MyRng = struct {
         return self.state;
     }
 
-    pub const Seed = bits.U(@bitSizeOf(Out) * 2);
+    pub const bestKnown = Config{ 1, 3, 41, 1 };
+    pub const configSize = Config{ 6, 4, 63, 2 };
+    pub const configName = [_][]const u8{ "algo", "mix", "shift", "LCG" };
+    pub const Config = [4]usize;
+    pub const Seed = u128;
     pub const Out = u64;
 
     // -------------------------------- Internal --------------------------------
@@ -206,7 +212,7 @@ pub const MyRngSimple = struct {
     const Self = @This();
 };
 
-pub const NonDeter32Config = struct {
+pub const MyRngConfig = struct {
     pub usingnamespace Base;
 
     data: Data,
@@ -223,44 +229,70 @@ pub const NonDeter32Config = struct {
 
     // -------------------------------- Internal --------------------------------
 
-    const Data = NonDeter32Data;
-    const Base = NonDeter32Base;
+    const Data = MyRngData;
+    const Base = MyRngBase;
     const Self = @This();
 };
 
-pub const NonDeter32 = struct {
-    pub usingnamespace Base;
+// pub const MyRng = struct {
+//     pub usingnamespace Base;
 
-    data: Data,
+//     data: Data,
 
-    pub fn init(seed: Base.Seed, config: Base.Config) Self {
-        var self = .{ .data = Base.init(seed, config) };
-        runEntropy64(&self.data.state);
-        return self;
+//     pub fn init(seed: Base.Seed, config: Base.Config) Self {
+//         var self = .{ .data = Base.init(seed, config) };
+//         runEntropy64(&self.data.state);
+//         return self;
+//     }
+
+//     pub fn next(self: *Self) Base.Out {
+//         return Base.algo(&self.data, time64());
+//     }
+
+//     // -------------------------------- Internal --------------------------------
+
+//     const Data = MyRngData;
+//     const Base = MyRngBase;
+//     const Self = @This();
+// };
+
+pub const RngCounter = struct {
+    usingnamespace MyRngBase;
+    data: MyRngData,
+    counter: Base = 0,
+
+    pub fn init(seed: Base, config: Base.Config) Self {
+        // for (config) |conf, c| {
+        //     if (conf >= configSize[c]) @panic("Invalid config");
+        // }
+        return Self{ .state = seed *% dev.oddPhiFraction(Base), .config = config };
     }
 
     pub fn next(self: *Self) Base.Out {
-        return Base.algo(&self.data, time64());
+        defer self.counter += 1000;
+        MyRngBase.algo(self.data, self.counter);
+        return self.state;
     }
 
+    pub const bestKnown = Base.Config{ 0, 1, 6, 1 };
     // -------------------------------- Internal --------------------------------
 
-    const Data = NonDeter32Data;
-    const Base = NonDeter32Base;
+    const Base = MyRngBase;
     const Self = @This();
 };
 
-const NonDeter32Data = struct {
-    usingnamespace NonDeter32Base;
+const MyRngData = struct {
+    usingnamespace MyRngBase;
 
-    state: NonDeter32Base.Seed,
-    config: NonDeter32Base.Config,
+    state: MyRngBase.Seed,
+    config: MyRngBase.Config,
+    algo: MyRngBase.Algo,
 };
 
-const NonDeter32Base = struct {
-    pub const bestKnown = Config{ 1, 3, 41, 1 }; // round: 4, order: 20, quality: 13.378188881204963
-    pub const configSize = Config{ 6, 4, 63, 2 };
-    pub const configName = [_][]const u8{ "algo", "mix", "shift", "LCG" };
+const MyRngBase = struct {
+    pub const configSize = Config{ 4, 63, 2, 6 };
+    pub const configName = [_][]const u8{ "mix", "shift", "LCG", "algo" };
+    pub const Algo = [3]usize;
     pub const Config = [4]usize;
     pub const Seed = u64;
     pub const Out = u32;
@@ -268,172 +300,46 @@ const NonDeter32Base = struct {
     // -------------------------------- Internal --------------------------------
 
     fn init(seed: Seed, config: Config) Data {
-        for (config) |conf, c| {
-            if (conf >= configSize[c]) @panic("Invalid config");
-        }
-        var self = Data{ .state = seed *% dev.oddPhiFraction(Seed), .config = config };
+        _ = seed;
+        for (config) |conf, c| if (conf >= configSize[c]) @panic("Invalid config");
+        const algorithm: Algo = undefined;
+        lib.indexPermutation(algorithm, config[3]);
+        var self = Data{
+            // .state = seed *% dev.oddPhiFraction(Seed),
+            .config = config,
+            .algo = algorithm,
+        };
         return self;
     }
 
-    fn algo(data: *Data, value: Seed) Out {
-        switch (data.config[0]) {
-            0 => {
-                data.mix(value);
-                data.shift();
-                data.mul();
-            },
-            1 => {
-                data.mix(value);
-                data.mul();
-                data.shift();
-            },
-            2 => {
-                data.shift();
-                data.mix(value);
-                data.mul();
-            },
-            3 => {
-                data.shift();
-                data.mul();
-                data.mix(value);
-            },
-            4 => {
-                data.mul();
-                data.mix(value);
-                data.shift();
-            },
-            5 => {
-                data.mul();
-                data.shift();
-                data.mix(value);
-            },
-            else => unreachable,
-        }
-        return @intCast(Out, data.state >> @bitSizeOf(Seed) - @bitSizeOf(Out));
-    }
-
-    fn mix(data: *Data, value: Seed) void {
-        const t = value;
-        switch (data.config[1]) {
-            0 => data.state ^= t,
-            1 => data.state +%= t,
-            2 => data.state -%= t,
-            3 => data.state = t -% data.state,
-            else => unreachable,
+    fn algo(data: *Data, value: Seed) void {
+        for (data.algo) |a| {
+            switch (a) {
+                0 => { // Mixin
+                    const t = value;
+                    switch (data.config[0]) {
+                        0 => data.state ^= t,
+                        1 => data.state +%= t,
+                        2 => data.state -%= t,
+                        3 => data.state = t -% data.state,
+                        else => unreachable,
+                    }
+                },
+                1 => { // XorShift
+                    data.state ^= data.state >> bits.ShiftCast(Seed, data.config[1] + 1);
+                },
+                2 => { // Multiply
+                    data.state *%= if (data.config[2] == 1)
+                        dev.harmonicLCG(Seed)
+                    else
+                        dev.harmonicMCG(Seed);
+                },
+            }
         }
     }
 
-    fn shift(data: *Data) void {
-        data.state ^= data.state >> @intCast(std.math.Log2Int(Seed), data.config[2] + 1);
-    }
-
-    fn mul(data: *Data) void {
-        data.state *%= if (data.config[3] == 1) dev.harmonicLCG(Seed) else dev.harmonicMCG(Seed);
-    }
-
-    const Data = NonDeter32Data;
+    const Data = MyRngData;
     const Base = @This();
-};
-
-var initialized = false;
-var h: u64 = undefined;
-var s: u64 = undefined;
-var tI: u64 = undefined;
-
-pub const Mix64 = struct {
-    state: Seed,
-    config: Config,
-    counter: Seed = 0,
-
-    pub fn init(seed: Seed, config: Config) Self {
-        for (config) |conf, c| {
-            if (conf >= configSize[c]) @panic("Invalid config");
-        }
-        if (!initialized) {
-            defer initialized = true;
-            const p = std.heap.page_allocator.create(u1) catch unreachable;
-            std.heap.page_allocator.destroy(p);
-            h = @ptrToInt(p);
-            s = @ptrToInt(&p);
-            tI = std.Thread.getCurrentId();
-        }
-        return Self{ .state = seed *% dev.oddPhiFraction(Seed), .config = config };
-    }
-
-    pub fn next(self: *Self) Out {
-        defer self.counter += 1000;
-        self.algo(self.counter);
-        // self.algo(s);
-        // self.algo(h);
-        // self.algo(tI);
-        return self.state;
-    }
-
-    pub const bestKnown = Config{ 0, 1, 6, 1 }; // round4: order: 20, quality: 13.127388403133672
-    pub const configSize = Config{ 6, 4, 31, 2 };
-    pub const configName = [_][]const u8{ "algo", "mix", "shift", "LCG" };
-    pub const Config = [4]usize;
-    pub const Seed = u64;
-    pub const Out = u64;
-
-    // -------------------------------- Internal --------------------------------
-
-    fn algo(self: *Self, value: Seed) void {
-        switch (self.config[0]) {
-            0 => {
-                self.mix(value);
-                self.shift();
-                self.mul();
-            },
-            1 => {
-                self.mix(value);
-                self.mul();
-                self.shift();
-            },
-            2 => {
-                self.shift();
-                self.mix(value);
-                self.mul();
-            },
-            3 => {
-                self.shift();
-                self.mul();
-                self.mix(value);
-            },
-            4 => {
-                self.mul();
-                self.mix(value);
-                self.shift();
-            },
-            5 => {
-                self.mul();
-                self.shift();
-                self.mix(value);
-            },
-            else => unreachable,
-        }
-    }
-
-    fn mix(self: *Self, value: Seed) void {
-        const t = value;
-        switch (self.config[1]) {
-            0 => self.state ^= t,
-            1 => self.state +%= t,
-            2 => self.state -%= t,
-            3 => self.state = t -% self.state,
-            else => unreachable,
-        }
-    }
-
-    fn shift(self: *Self) void {
-        self.state ^= self.state >> @intCast(std.math.Log2Int(Seed), self.config[2] + 1);
-    }
-
-    fn mul(self: *Self) void {
-        self.state *%= if (self.config[3] == 1) dev.harmonicLCG(Seed) else dev.harmonicMCG(Seed);
-    }
-
-    const Self = @This();
 };
 
 pub fn runEntropy64(state: *u64) void {

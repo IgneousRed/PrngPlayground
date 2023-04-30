@@ -4,6 +4,7 @@ const os = std.os;
 const math = std.math;
 const debug = std.debug;
 const dev = @import("rng_dev.zig");
+const lib = @import("lib.zig");
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
@@ -108,12 +109,12 @@ pub fn testRNG(
 }
 
 const Tally = struct {
-    map: ManagedStringHashMap(f64),
+    map: lib.ManagedStringHashMap(f64),
     countRcp: f64,
 
     pub fn init(runs: usize, alloc: Allocator) !Self {
         return Self{
-            .map = ManagedStringHashMap(f64).init(alloc),
+            .map = lib.ManagedStringHashMap(f64).init(alloc),
             .countRcp = 1 / @intToFloat(f64, runs),
         };
     }
@@ -361,7 +362,7 @@ pub const SubTestFault = struct {
     const Self = @This();
 };
 
-pub const SubTests = ManagedStringHashMap(SubTestResult);
+pub const SubTests = std.ManagedStringHashMap(SubTestResult);
 
 // pub const SubTest = struct {
 //     name: []const u8,
@@ -394,61 +395,6 @@ pub const SubTestResult = struct {
 
     const Self = @This();
 };
-
-/// StringHashMap where keys are managed.
-pub fn ManagedStringHashMap(comptime T: type) type {
-    return struct {
-        map: StringHashMap(T),
-
-        pub fn init(alloc: Allocator) Self {
-            return Self{ .map = StringHashMap(T).init(alloc) };
-        }
-
-        pub fn allocator(self: *Self) Allocator {
-            return self.map.allocator;
-        }
-
-        pub fn contains(self: *Self, name: []const u8) bool {
-            return self.map.contains(name);
-        }
-
-        /// Puts `value` into map, dupes the key if not present.
-        pub fn put(self: *Self, key: []const u8, value: T) !void {
-            if (self.map.contains(key)) {
-                self.map.putAssumeCapacity(key, value);
-                return;
-            }
-            try self.map.putNoClobber(try self.map.allocator.dupe(u8, key), value);
-        }
-
-        pub fn getPtr(self: *Self, name: []const u8) ?*T {
-            return self.map.getPtr(name);
-        }
-
-        pub fn count(self: *Self) StringHashMap(T).Size {
-            return self.map.count();
-        }
-
-        pub fn iterator(self: *Self) Iterator {
-            return self.map.iterator();
-        }
-
-        /// Frees both the map and all the keys.
-        pub fn deinit(self: *Self) void {
-            defer self.map.deinit();
-            var iter = self.map.keyIterator();
-            while (iter.next()) |key| {
-                self.map.allocator.free(key.*);
-            }
-        }
-
-        pub const Iterator = StringHashMap(T).Iterator;
-
-        // -------------------------------- Internal --------------------------------
-
-        const Self = @This();
-    };
-}
 
 /// Returns char as f64.
 fn charToF64(char: u8) f64 {

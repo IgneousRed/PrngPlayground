@@ -1,4 +1,6 @@
 const std = @import("std");
+const io = std.io;
+const os = io.os;
 const ArrayList = std.ArrayList;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -157,3 +159,126 @@ pub const MatrixF64 = struct {
 
     const Self = @This();
 };
+
+/// StringHashMap where keys are managed.
+pub fn ManagedStringHashMap(comptime T: type) type {
+    return struct {
+        map: std.StringHashMap(T),
+
+        pub fn init(alloc: Allocator) Self {
+            return Self{ .map = std.StringHashMap(T).init(alloc) };
+        }
+
+        pub fn allocator(self: *Self) Allocator {
+            return self.map.allocator;
+        }
+
+        pub fn contains(self: *Self, name: []const u8) bool {
+            return self.map.contains(name);
+        }
+
+        /// Puts `value` into map, dupes the key if not present.
+        pub fn put(self: *Self, key: []const u8, value: T) !void {
+            if (self.map.contains(key)) {
+                self.map.putAssumeCapacity(key, value);
+                return;
+            }
+            try self.map.putNoClobber(try self.map.allocator.dupe(u8, key), value);
+        }
+
+        pub fn getPtr(self: *Self, name: []const u8) ?*T {
+            return self.map.getPtr(name);
+        }
+
+        pub fn count(self: *Self) std.StringHashMap(T).Size {
+            return self.map.count();
+        }
+
+        pub fn iterator(self: *Self) Iterator {
+            return self.map.iterator();
+        }
+
+        /// Frees both the map and all the keys.
+        pub fn deinit(self: *Self) void {
+            defer self.map.deinit();
+            var iter = self.map.keyIterator();
+            while (iter.next()) |key| {
+                self.map.allocator.free(key.*);
+            }
+        }
+
+        pub const Iterator = std.StringHashMap(T).Iterator;
+
+        // -------------------------------- Internal --------------------------------
+
+        const Self = @This();
+    };
+}
+
+const NonBlockingLineReader = struct {
+    reader: std.fs.File.Reader,
+    buffer: []u8,
+    read: usize = 0,
+    lineStart: usize = 0,
+    end: usize = 0,
+
+    pub fn init(file: std.fs.File, bufferSize: usize, alloc: Allocator) !Self {
+        _ = try os.fcntl(file.handle, os.F.SETFL, os.O.NONBLOCK);
+        return .{ .reader = file.reader(), .buffer = try alloc.alloc(u8, bufferSize) };
+    }
+
+    pub fn line(self: *Self) ?[]const u8 {
+        // If buffer has available
+        const result = self.parse();
+        if (result != null) return result;
+
+        // If space could be freed
+        if (self.lineStart > 0) {
+            mem.copy(u8, self.buffer[0..], self.buffer[self.lineStart..self.end]);
+            self.read -= self.lineStart;
+            self.lineStart = 0;
+            self.end = self.read;
+        }
+
+        // Fill buffer
+        self.end = self.read + self.reader.read(self.buffer[self.read..]) catch 0;
+        return self.parse();
+    }
+
+    // -------------------------------- Internal --------------------------------
+
+    fn parse(self: *Self) ?[]const u8 {
+        while (self.read < self.end) {
+            defer self.read += 1;
+            if (self.buffer[self.read] != '\n') continue;
+            defer self.lineStart = self.read + 1;
+            return self.buffer[self.lineStart..self.read];
+        }
+        return null;
+    }
+
+    const Self = @This();
+};
+
+pub fn factorial(value: usize) usize {
+    var result: usize = 1;
+    var i: usize = 2;
+    while (i <= value) : (i += 1) result *= i;
+    return result;
+}
+
+/// Returns `n`th permutation of `result.len` indexes
+pub fn indexPermutation(result: []usize, n: usize) void {
+    var perm = n;
+    for (result) |*res, r| {
+        const rOpposite = result.len - r;
+        var pick = perm % rOpposite;
+        var i: usize = 0;
+        while (i <= pick) : (i += 1) for (result[0..r]) |v| if (v == i) {
+            pick += 1;
+            continue;
+        };
+        res.* = pick;
+        perm /= rOpposite;
+    }
+}

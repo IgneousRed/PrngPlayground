@@ -30,9 +30,16 @@ fn avrDist(a: f64, b: f64) f64 {
 }
 
 pub fn main() !void {
+    var i: usize = 0;
+    const perm = try alloc.alloc(usize, 4);
+    while (i < lib.factorial(perm.len)) : (i += 1) {
+        lib.indexPermutation(perm, i);
+        std.debug.print("{any}\n", .{perm});
+    }
+
     // try tRNG.configRNG(rng.NonDeter32Config, 20, 0, true, true, alloc);
     // try testing(rng.Mix64, rng.Mix64.bestKnown);
-    try testing(rng.MyRngSimple, 0);
+    // try testing(rng.MyRngSimple, 0);
     // try testing(rng.MyRng, 0);
     // try testing(rng.Xoroshiro128);
     // try testing(rng.Xoshiro256);
