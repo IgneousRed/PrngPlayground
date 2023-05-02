@@ -14,8 +14,8 @@ pub fn U(comptime bits: comptime_int) type {
 }
 
 /// Returns the right type for shifting T.
-pub fn ShiftType(comptime bits: comptime_int) type {
-    return std.math.Log2Int(U(bits));
+pub fn ShiftType(comptime T: type) type {
+    return std.math.Log2Int(T);
 }
 
 /// Returns the right type for shifting T.
@@ -24,8 +24,8 @@ pub fn shiftSize(comptime bits: comptime_int) comptime_int {
 }
 
 /// Casts value into right type for shifting T.
-pub fn ShiftCast(comptime bits: comptime_int, value: anytype) ShiftType(bits) {
-    return @intCast(ShiftType(bits), value);
+pub fn ShiftCast(comptime T: type, value: anytype) ShiftType(T) {
+    return @intCast(ShiftType(T), value);
 }
 
 /// bit rotate right.
@@ -61,13 +61,13 @@ pub fn ror128(source: u128, amount: u7) u128 {
 // pub fn split()
 
 /// Returns the low bits of an int.
-pub fn low(comptime bits: comptime_int, int: anytype) U(bits) {
-    return @truncate(U(bits), int);
+pub fn low(comptime T: type, int: anytype) T {
+    return @truncate(T, int);
 }
 
 /// Returns the hign bits of an int.
-pub fn highBits(comptime bits: comptime_int, int: anytype) U(bits) {
-    return @intCast(U(bits), int >> @bitSizeOf(@TypeOf(int)) - bits);
+pub fn high(comptime T: type, int: anytype) T {
+    return @intCast(T, int >> @bitSizeOf(@TypeOf(int)) - @bitSizeOf(T));
 }
 
 pub fn concat(comptime T: type, highInt: anytype, lowInt: anytype) T {

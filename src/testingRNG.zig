@@ -37,7 +37,6 @@ pub fn configRNG(
             var i: usize = 0;
             while (i < RNG.configSize[c]) {
                 defer i += 1;
-                if (i == bestI) continue;
 
                 conf.* = i;
                 const result = try testRNG(RNG, maxOrder, runs, config, alloc);
@@ -45,7 +44,7 @@ pub fn configRNG(
                 const report = .{ RNG.configName[c], i, result.order, result.quality };
                 if (details) std.debug.print("    {s}: {}, order: {}, quality: {d}\n", report);
 
-                if (best.pack() < result.pack()) {
+                if (best.pack() <= result.pack()) {
                     best = result;
                     bestI = i;
                 }
@@ -81,7 +80,7 @@ pub fn testRNG(
     var run: usize = 0;
     runLoop: while (run < runCount) {
         defer run += 1;
-        var tester = try TestDriver(RNG).init(@truncate(RNG.Seed, run), config, alloc);
+        var tester = try TestDriver(RNG).init(run, config, alloc);
         defer tester.deinit();
         for (ordersTally[0..activeOrders]) |*tally, order| {
             var subTests = try tester.next();
@@ -362,7 +361,7 @@ pub const SubTestFault = struct {
     const Self = @This();
 };
 
-pub const SubTests = std.ManagedStringHashMap(SubTestResult);
+pub const SubTests = lib.ManagedStringHashMap(SubTestResult);
 
 // pub const SubTest = struct {
 //     name: []const u8,

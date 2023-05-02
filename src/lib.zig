@@ -282,3 +282,7 @@ pub fn indexPermutation(result: []usize, n: usize) void {
         perm /= rOpposite;
     }
 }
+
+pub fn nano64() u64 {
+    return @truncate(u64, @intCast(u128, std.time.nanoTimestamp()));
+}
