@@ -157,6 +157,34 @@ pub const Xoshiro256 = struct {
     const Self = @This();
 };
 
+pub const RedMul = struct {
+    pub usingnamespace RedBase;
+    data: RedData,
+    counter: RedBase.Out,
+
+    pub fn init(seed: Seed, config: RedBase.Config) Self {
+        const value = seed *% dev.oddPhiFraction(Seed);
+        return .{
+            .data = RedBase.init(config, bits.high(RedBase.Out, value)),
+            .counter = bits.low(RedBase.Out, value),
+        };
+    }
+
+    pub fn next(self: *Self) RedBase.Out {
+        RedBase.algo(&self.data, self.counter);
+        self.counter *%= dev.harmonicLCG(RedBase.Out);
+        self.counter +%= dev.oddPhiFraction(RedBase.Out);
+        return self.data.state; // TODO: Try output function, how will that affect 1kED
+    }
+
+    pub const bestKnown = RedBase.Config{ 2, 53, 1, 5 }; // 5, 20, 12.522809546723856
+    pub const Seed = u128;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
 pub const Red = struct {
     pub usingnamespace RedBase;
     data: RedData,
@@ -171,75 +199,13 @@ pub const Red = struct {
     }
 
     pub fn next(self: *Self) RedBase.Out {
-        defer self.counter +%= dev.oddPhiFraction(RedBase.Out); // 19.48789692645912, 19.468798919734887
         RedBase.algo(&self.data, self.counter);
-        return self.data.state;
+        self.counter +%= dev.oddPhiFraction(RedBase.Out);
+        return self.data.state; // TODO: Try output function, how will that affect 1kED
     }
 
-    pub const bestKnown = RedBase.Config{ 1, 48, 1, 5 }; // 5, 20, 12.522809546723856
+    pub const bestKnown = RedBase.Config{ 1, 48, 1, 5 }; // round: 6, quality: 7.661276181560186
     pub const Seed = u128;
-
-    // -------------------------------- Internal --------------------------------
-
-    const Self = @This();
-};
-
-pub const RedRev = struct {
-    config: Config,
-    algo: Algo,
-    state: Out,
-    counter: Out,
-
-    pub fn init(seed: Seed, config: Config) Self {
-        for (config) |conf, c| if (conf >= configSize[c]) @panic("Invalid config");
-        const value = seed *% dev.oddPhiFraction(Seed);
-        var algorithm: Algo = undefined;
-        lib.indexPermutation(&algorithm, config[2]);
-        return .{
-            .state = bits.high(Out, value),
-            .config = config,
-            .algo = algorithm,
-            .counter = bits.low(Out, value),
-        };
-    }
-
-    pub fn next(self: *Self) Out {
-        defer self.counter +%= dev.oddPhiFraction(Out);
-
-        for (self.algo) |a| {
-            switch (a) {
-                0 => { // Mixin
-                    const t = self.counter;
-                    switch (self.config[0]) {
-                        0 => self.state ^= t,
-                        1 => self.state +%= t,
-                        2 => self.state -%= t,
-                        3 => self.state = t -% self.state,
-                        else => unreachable,
-                    }
-                },
-                1 => { // Multiply
-                    self.state *%= if (self.config[1] == 1)
-                        dev.harmonicLCG(Out)
-                    else
-                        dev.harmonicMCG(Out);
-                },
-                2 => { // Reverse
-                    self.state = @bitReverse(self.state);
-                },
-                else => unreachable,
-            }
-        }
-        return self.state;
-    }
-
-    pub const bestKnown = Config{ 1, 1, 5 }; // 4, 20, 17.67381136557499
-    pub const configSize = Config{ 4, 2, 6 };
-    pub const configName = [_][]const u8{ "mix", "LCG", "algo" };
-    pub const Algo = [3]usize;
-    pub const Config = [3]usize;
-    pub const Seed = u128;
-    pub const Out = u64;
 
     // -------------------------------- Internal --------------------------------
 
@@ -412,16 +378,16 @@ pub fn runEntropy64(state: *u64) void {
     const alloc = std.heap.page_allocator;
     const heap = alloc.create(u1) catch unreachable;
     alloc.destroy(heap);
-    mix64(state, lib.nano64());
-    mix64(state, @ptrToInt(&heap)); // MacOS: ~13bits of entropy
-    mix64(state, @ptrToInt(heap)); // MacOS: ~13bits of entropy
-    mix64(state, std.Thread.getCurrentId()); // MacOS: ~10bits of entropy
+    mixIn64(state, lib.nano64());
+    mixIn64(state, @ptrToInt(&heap)); // MacOS: ~13bits of entropy
+    mixIn64(state, @ptrToInt(heap)); // MacOS: ~13bits of entropy
+    mixIn64(state, std.Thread.getCurrentId()); // MacOS: ~10bits of entropy
 }
 
-pub fn mix64(state: *u64, value: u64) void {
-    state.* ^= value;
-    state.* ^= state.* >> 48;
-    state.* *%= dev.harmonicMCG(u64);
+pub fn mixIn64(state: *u64, value: u64) void {
+    state.* *%= dev.harmonicLCG(u64);
+    state.* ^= state.* >> 31;
+    state.* -%= value;
 }
 
 // TODO: Write and Read run results in files

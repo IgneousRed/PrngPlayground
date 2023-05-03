@@ -28,9 +28,22 @@ fn avrDist(a: f64, b: f64) f64 {
         return 1 - math.pow(f64, 2 - avr, 2) / 2;
     } else return math.pow(f64, avr, 2) / 2;
 }
-
+fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
+    var buckets: [RNG.Out]u64 = undefined;
+    var cycleCount: u64 = 0;
+    var r = RNG.init(seed);
+    const initState = @bitCast(@bitSizeOf(RNG), r);
+    while (@bitCast(@bitSizeOf(RNG), r) != initState) {
+        buckets[r.next()] += 1;
+        cycleCount += 1;
+    }
+    std.debug.print("{any}\n", .{buckets});
+}
 pub fn main() !void {
-    try tRNG.configRNG(rng.RedRev, 20, 0, true, true, alloc);
+    // var permutation: [3]usize = undefined;
+    // lib.indexPermutation(&permutation, 0);
+    // std.debug.print("{any}\n", .{permutation});
+    try tRNG.configRNG(rng.RedMul, 20, 0, true, true, alloc);
     // try testing(rng.Red, 0);
     // try transitionTest();
     // mulXshSearch();
