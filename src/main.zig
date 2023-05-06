@@ -5,28 +5,15 @@ const rng = @import("rng.zig");
 const dev = @import("rng_dev.zig");
 const bits = @import("bits.zig");
 const tRNG = @import("testingRNG.zig");
-const rand = std.rand;
-const math = std.math;
-const builtin = @import("builtin");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
 
-// a = ror(a, b);
-// a +%= f(b); (f doesn't need to be reversible)
-// a -%= f(b);
-// a ^= f(b);
-// a *%= k; (k is odd)
-// a +%= a << k;
-// a -%= a << k;
-// a ^= a << k;
-// a ^= a >> k;
-// a = @bitReverse(a);
 fn avrDist(a: f64, b: f64) f64 {
     const avr = a + b;
     if (avr > 1) {
-        return 1 - math.pow(f64, 2 - avr, 2) / 2;
-    } else return math.pow(f64, avr, 2) / 2;
+        return 1 - std.math.pow(f64, 2 - avr, 2) / 2;
+    } else return std.math.pow(f64, avr, 2) / 2;
 }
 fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
     var buckets: [RNG.Out]u64 = undefined;
@@ -39,12 +26,18 @@ fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
     }
     std.debug.print("{any}\n", .{buckets});
 }
+fn perm16(value: u16) u16 {
+    var v = [2]u8{ bits.high(u8, value), bits.low(u8, value) };
+    v[0] = std.math.rotl(u8, v[0], @popCount(v[1]));
+    // v[0] = @bitReverse(v[1]) -% std.math.rotl(u8, v[0], v[1] >> 5);
+    // v[1] = v[1] *% 33 +% 77;
+    return @intCast(u16, v[1]) << 8 | v[0];
+}
 pub fn main() !void {
-    // var permutation: [3]usize = undefined;
-    // lib.indexPermutation(&permutation, 0);
-    // std.debug.print("{any}\n", .{permutation});
-    try tRNG.configRNG(rng.RedMul, 20, 0, true, true, alloc);
-    // try testing(rng.Red, 0);
+    // try permutationCheck(u16, perm16);
+
+    // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
+    // try testing(rng.Test, 1);
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);
@@ -70,7 +63,8 @@ fn testing(comptime RNG: type, seed: RNG.Seed) !void {
     try child.spawn();
     const stdIn = child.stdin.?.writer();
 
-    var random = RNG.init(seed, RNG.bestKnown);
+    // var random = RNG.init(seed, RNG.bestKnown);
+    var random = RNG.init(seed);
     var buf: [1 << 16]RNG.Out = undefined;
     while (true) {
         for (buf) |*b| {
@@ -249,3 +243,5 @@ fn timeHelp(
 
 // TODO: TEST EVERYTHING!
 // TODO: Try to const everything
+// TODO: Delete unused imports
+// TODO: Disable optimizations `asm volatile("" ::: "memory")`

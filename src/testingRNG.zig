@@ -1,15 +1,7 @@
 const std = @import("std");
-const mem = std.mem;
-const os = std.os;
-const math = std.math;
-const debug = std.debug;
 const dev = @import("rng_dev.zig");
 const lib = @import("lib.zig");
-const StringHashMap = std.StringHashMap;
-const Allocator = mem.Allocator;
-const BoundedArray = std.BoundedArray;
-const rand = std.rand;
-const Random = rand.Random;
+const Allocator = std.mem.Allocator;
 
 // TODO: Think about false positives and compare with default
 
@@ -119,7 +111,7 @@ const Tally = struct {
     }
 
     pub fn putAndReport(self: *Self, name: []const u8, result: SubTestResult) !f64 {
-        if (result.data == math.nan_f64) return math.inf_f64;
+        if (result.data == std.math.nan_f64) return std.math.inf_f64;
 
         if (!self.map.contains(name)) try self.map.put(name, 0.0); // TODO: GetOrPut?
 
@@ -145,7 +137,7 @@ const Tally = struct {
 };
 
 // pub fn fault(result: f64) f64 {
-//     if (result == math.nan_f64) return math.inf_f64;
+//     if (result == std.math.nan_f64) return std.math.inf_f64;
 //     const value = @fabs(result); // best = 0.5, worst = 0
 //     const biased = 1 / value; //    best = 2.0, worst = inf
 //     return biased - 2; //           best = 0.0, worst = inf
@@ -193,8 +185,8 @@ fn TestDriver(comptime RNG: type) type {
             tester.stdin_behavior = .Pipe;
             tester.stdout_behavior = .Pipe;
             try tester.spawn();
-            _ = try os.fcntl(tester.stdin.?.handle, os.F.SETFL, os.O.NONBLOCK);
-            _ = try os.fcntl(tester.stdout.?.handle, os.F.SETFL, os.O.NONBLOCK);
+            _ = try std.os.fcntl(tester.stdin.?.handle, std.os.F.SETFL, std.os.O.NONBLOCK);
+            _ = try std.os.fcntl(tester.stdout.?.handle, std.os.F.SETFL, std.os.O.NONBLOCK);
 
             return Self{
                 .rng = RNG.init(seed, config),
@@ -213,7 +205,7 @@ fn TestDriver(comptime RNG: type) type {
                     w.* = self.rng.next();
                 };
                 self.writeReady = false;
-                self.writer.writeAll(mem.sliceAsBytes(self.writeBuffer)) catch {
+                self.writer.writeAll(std.mem.sliceAsBytes(self.writeBuffer)) catch {
                     self.writeReady = true;
                 };
             }
@@ -243,7 +235,7 @@ fn TestDriver(comptime RNG: type) type {
                 if (line.len == 0) if (self.subTests.count() > 0) return false else continue;
 
                 // if un-indented and not table header
-                if (mem.eql(u8, line[0..2], "  ") and !mem.eql(u8, line[2..11], "Test Name")) {
+                if (std.mem.eql(u8, line[0..2], "  ") and !std.mem.eql(u8, line[2..11], "Test Name")) {
                     // Skip indentation
                     var l: usize = 2;
 
@@ -256,7 +248,7 @@ fn TestDriver(comptime RNG: type) type {
             }
 
             // Make space
-            mem.copy(u8, self.readBuffer[0..], self.readBuffer[lineStart..readLen]);
+            std.mem.copy(u8, self.readBuffer[0..], self.readBuffer[lineStart..readLen]);
             self.readIndex -= lineStart;
             return true;
         }
@@ -283,7 +275,7 @@ fn TestDriver(comptime RNG: type) type {
             const trailingChar = line[l - 1];
 
             // If p == "nan"
-            if (trailingChar == 'n') return math.nan_f64;
+            if (trailingChar == 'n') return std.math.nan_f64;
 
             var trailingNumber: f64 = charToF64(trailingChar);
             var trailingDigitCount: f64 = 1;
@@ -294,7 +286,7 @@ fn TestDriver(comptime RNG: type) type {
 
             // Fill trailingNumber
             while (charIsDigit(trailingNumberChar)) {
-                const exp = math.pow(f64, 10, trailingDigitCount);
+                const exp = std.math.pow(f64, 10, trailingDigitCount);
                 trailingNumber += charToF64(trailingNumberChar) * exp;
                 trailingDigitCount += 1;
                 l -= 1;
@@ -309,7 +301,7 @@ fn TestDriver(comptime RNG: type) type {
 
             // If p == normal value: "0.188"
             if (nonDigitChar == '.') {
-                const value = trailingNumber * math.pow(f64, 10, -trailingDigitCount);
+                const value = trailingNumber * std.math.pow(f64, 10, -trailingDigitCount);
                 return if (value > 0.5) value - 1.0 else value;
             }
 
@@ -323,7 +315,7 @@ fn TestDriver(comptime RNG: type) type {
                 symbolIndex -= 2;
             }
 
-            var value = coefficient * math.pow(f64, 10, -trailingNumber);
+            var value = coefficient * std.math.pow(f64, 10, -trailingNumber);
             return if (line[symbolIndex] == '-') -value else value;
         }
 
@@ -336,7 +328,7 @@ pub const Score = struct { // TODO: TestScore?
     quality: f64 = 0,
 
     pub fn init(order: u6, fault: SubTestFault) Self {
-        return Self{ .order = order, .quality = 33 - math.log2(fault.data + 1) };
+        return Self{ .order = order, .quality = 33 - std.math.log2(fault.data + 1) };
     }
 
     pub fn pack(self: Self) f64 {
@@ -352,7 +344,7 @@ pub const SubTestFault = struct {
     data: f64,
 
     pub fn init(result: SubTestResult) Self {
-        if (result.data == math.nan_f64) return Self{ .data = math.inf_f64 };
+        if (result.data == std.math.nan_f64) return Self{ .data = std.math.inf_f64 };
         return Self{ .data = 1 / @fabs(result.data) - 2 };
     }
 
@@ -385,7 +377,7 @@ pub const SubTestResult = struct {
     data: f64,
 
     pub fn init(raw: f64) Self {
-        if (raw == math.nan_f64) return Self{ .data = math.nan_f64 };
+        if (raw == std.math.nan_f64) return Self{ .data = std.math.nan_f64 };
         std.debug.assert(raw > -0.5 and raw <= 0.5);
         return Self{ .data = raw };
     }
@@ -397,7 +389,7 @@ pub const SubTestResult = struct {
 
 /// Returns char as f64.
 fn charToF64(char: u8) f64 {
-    debug.assert(charIsDigit(char));
+    std.debug.assert(charIsDigit(char));
     return @intToFloat(f64, char - '0');
 }
 

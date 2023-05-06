@@ -1,0 +1,24 @@
+// Permutation table
+// x = y = z = some value with same bit size
+// z must be odd
+// k = some constant
+//
+// Permutation      Inverse
+// x ^= y           x ^= y
+// x +%= y          x -%= y
+// x -%= y          x +%= y
+// x = y -% x       x +%= y
+// x *%= z          x *%= mulInv(z)
+// x +%= x << k     x *%= mulInv(1 +% (1 << k))
+// x -%= x << k     x *%= mulInv(1 -% (1 << k))
+// x ^= x << k      x = xshLInv(x, k)
+// x ^= x >> k      x = xshRInv(x, k)
+// x = rotl(x)      rotr(x)
+// x = bitInv(x)    bitInv(x)
+// x = byteSwap(x)  byteSwap(x)
+//
+// There exist more permutations than what can be made by combining these,
+// Here are some surprising ones:
+// x ^= y ^ y >> (y & 3);
+// x = rotl(y, y & 7) -% x;
+// x *%= y | 1;

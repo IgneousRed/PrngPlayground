@@ -1,9 +1,5 @@
 const std = @import("std");
-const io = std.io;
-const os = io.os;
-const ArrayList = std.ArrayList;
-const mem = std.mem;
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 
 pub fn UnsignedSized(comptime T: type) type {
     return std.meta.Int(.unsigned, @bitSizeOf(T));
@@ -86,12 +82,6 @@ pub fn phiFraction(comptime T: type) T {
     const bits = @bitSizeOf(T);
     const one = @as(std.meta.Int(.unsigned, bits * 2 + 3), 1) << bits;
     return @intCast(T, std.math.sqrt((one << bits) * 5) - one >> 1);
-}
-
-pub fn allocValue(allocator: Allocator, comptime T: type, value: T, n: usize) ![]T {
-    var result = try allocator.alloc(T, n);
-    mem.set(T, result, value);
-    return result;
 }
 
 pub const MatrixError = error{ MatrixIncompatibleSizes, MatrixCopyOOB };
@@ -223,7 +213,7 @@ const NonBlockingLineReader = struct {
     end: usize = 0,
 
     pub fn init(file: std.fs.File, bufferSize: usize, alloc: Allocator) !Self {
-        _ = try os.fcntl(file.handle, os.F.SETFL, os.O.NONBLOCK);
+        _ = try std.os.fcntl(file.handle, std.os.F.SETFL, std.os.O.NONBLOCK);
         return .{ .reader = file.reader(), .buffer = try alloc.alloc(u8, bufferSize) };
     }
 
@@ -234,7 +224,7 @@ const NonBlockingLineReader = struct {
 
         // If space could be freed
         if (self.lineStart > 0) {
-            mem.copy(u8, self.buffer[0..], self.buffer[self.lineStart..self.end]);
+            std.mem.copy(u8, self.buffer[0..], self.buffer[self.lineStart..self.end]);
             self.read -= self.lineStart;
             self.lineStart = 0;
             self.end = self.read;
@@ -285,4 +275,46 @@ pub fn indexPermutation(result: []usize, n: usize) void {
 
 pub fn nano64() u64 {
     return @truncate(u64, @intCast(u128, std.time.nanoTimestamp()));
+}
+
+pub fn mulInv(value: anytype) @TypeOf(value) {
+    const T = @TypeOf(value);
+    const Info = @typeInfo(T);
+    if (Info != .Int) @compileError("Expects unsigned int");
+    if (Info.Int.signedness != .unsigned) @compileError("Expects unsigned int");
+
+    var result = value *% 3 ^ 2;
+    var temp = 1 -% result *% value;
+    comptime var b = 10;
+    inline while (b < @bitSizeOf(T)) : (b *= 2) {
+        result *%= temp +% 1;
+        temp *%= temp;
+    }
+    return result *% (temp +% 1);
+}
+pub fn xshrInv(comptime n: comptime_int, value: anytype) @TypeOf(value) {
+    const T = @TypeOf(value);
+    const Info = @typeInfo(T);
+    if (Info != .Int) @compileError("Expects unsigned int");
+    if (Info.Int.signedness != .unsigned) @compileError("Expects unsigned int");
+
+    var result = value;
+    comptime var b = n;
+    inline while (b < @bitSizeOf(T)) : (b *= 2) {
+        result ^= result >> b;
+    }
+    return result;
+}
+pub fn xshlInv(comptime n: comptime_int, value: anytype) @TypeOf(value) {
+    const T = @TypeOf(value);
+    const Info = @typeInfo(T);
+    if (Info != .Int) @compileError("Expects unsigned int");
+    if (Info.Int.signedness != .unsigned) @compileError("Expects unsigned int");
+
+    var result = value;
+    comptime var b = n;
+    inline while (b < @bitSizeOf(T)) : (b *= 2) {
+        result ^= result << b;
+    }
+    return result;
 }

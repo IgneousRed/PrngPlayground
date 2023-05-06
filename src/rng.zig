@@ -1,15 +1,13 @@
 const std = @import("std");
-const rand = std.rand;
-const Random = rand.Random;
 const bits = @import("bits.zig");
 const lib = @import("lib.zig");
 const dev = @import("rng_dev.zig");
 
 pub const Isaac64 = struct {
-    state: rand.Isaac64,
+    state: std.rand.Isaac64,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.Isaac64.init(seed) };
+        return .{ .state = std.rand.Isaac64.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -25,10 +23,10 @@ pub const Isaac64 = struct {
 };
 
 pub const Pcg = struct {
-    state: rand.Pcg,
+    state: std.rand.Pcg,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.Pcg.init(seed) };
+        return .{ .state = std.rand.Pcg.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -44,10 +42,10 @@ pub const Pcg = struct {
 };
 
 pub const RomuTrio = struct {
-    state: rand.RomuTrio,
+    state: std.rand.RomuTrio,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.RomuTrio.init(seed) };
+        return .{ .state = std.rand.RomuTrio.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -63,10 +61,10 @@ pub const RomuTrio = struct {
 };
 
 pub const Sfc64 = struct {
-    state: rand.Sfc64,
+    state: std.rand.Sfc64,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.Sfc64.init(seed) };
+        return .{ .state = std.rand.Sfc64.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -82,10 +80,10 @@ pub const Sfc64 = struct {
 };
 
 pub const SplitMix64 = struct {
-    state: rand.SplitMix64,
+    state: std.rand.SplitMix64,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.SplitMix64.init(seed) };
+        return .{ .state = std.rand.SplitMix64.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -101,10 +99,10 @@ pub const SplitMix64 = struct {
 };
 
 pub const Xoodoo = struct {
-    state: rand.Xoodoo,
+    state: std.rand.Xoodoo,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.Xoodoo.init(seed) };
+        return .{ .state = std.rand.Xoodoo.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -120,10 +118,10 @@ pub const Xoodoo = struct {
 };
 
 pub const Xoroshiro128 = struct {
-    state: rand.Xoroshiro128,
+    state: std.rand.Xoroshiro128,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.Xoroshiro128.init(seed) };
+        return .{ .state = std.rand.Xoroshiro128.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -139,10 +137,10 @@ pub const Xoroshiro128 = struct {
 };
 
 pub const Xoshiro256 = struct {
-    state: rand.Xoshiro256,
+    state: std.rand.Xoshiro256,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = rand.Xoshiro256.init(seed) };
+        return .{ .state = std.rand.Xoshiro256.init(seed) };
     }
 
     pub fn next(self: *Self) Out {
@@ -177,7 +175,7 @@ pub const RedMul = struct {
         return self.data.state; // TODO: Try output function, how will that affect 1kED
     }
 
-    pub const bestKnown = RedBase.Config{ 2, 53, 1, 5 }; // 5, 20, 12.522809546723856
+    pub const bestKnown = RedBase.Config{ 1, 30, 1, 5 }; // round: 5, quality: 8.737424499861344
     pub const Seed = u128;
 
     // -------------------------------- Internal --------------------------------
@@ -199,13 +197,125 @@ pub const Red = struct {
     }
 
     pub fn next(self: *Self) RedBase.Out {
-        RedBase.algo(&self.data, self.counter);
-        self.counter +%= dev.oddPhiFraction(RedBase.Out);
-        return self.data.state; // TODO: Try output function, how will that affect 1kED
+        defer self.counter +%= dev.oddPhiFraction(RedBase.Out);
+        return RedBase.algo(&self.data, self.counter);
     }
 
-    pub const bestKnown = RedBase.Config{ 1, 48, 1, 5 }; // round: 6, quality: 7.661276181560186
+    pub const bestKnown = RedBase.Config{ 3, 13, 1, 5 }; // round: 7, quality: 1.8438188170125223
     pub const Seed = u128;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const Weyl32 = struct {
+    state: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed };
+    }
+
+    pub fn next(self: *Self) Out {
+        defer self.state +%= dev.oddPhiFraction(Out);
+        return self.state;
+    }
+
+    pub const Seed = u32;
+    pub const Out = u32;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const Weyl64 = struct {
+    state: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed };
+    }
+
+    pub fn next(self: *Self) Out {
+        defer self.state +%= dev.oddPhiFraction(Out);
+        return self.state;
+    }
+
+    pub const Seed = u64;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const Weyl128 = struct {
+    state: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed };
+    }
+
+    pub fn next(self: *Self) Out {
+        defer self.state +%= dev.oddPhiFraction(Out);
+        return self.state;
+    }
+
+    pub const Seed = u128;
+    pub const Out = u128;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const Weyl256 = struct {
+    state: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed };
+    }
+
+    pub fn next(self: *Self) Out {
+        defer self.state +%= dev.oddPhiFraction(Out);
+        return self.state;
+    }
+
+    pub const Seed = u256;
+    pub const Out = u256;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const Test = struct {
+    counter: Out,
+    a: Out,
+    b: Out,
+    c: Out,
+
+    pub fn init(seed: Seed) Self {
+        const value = seed *% dev.oddPhiFraction(Seed);
+        return .{
+            .counter = @truncate(Out, value),
+            .a = @truncate(Out, value >> @bitSizeOf(Out)),
+            .b = @truncate(Out, value >> @bitSizeOf(Out) * 2),
+            .c = @intCast(Out, value >> @bitSizeOf(Out) * 3),
+        };
+    }
+
+    pub fn next(self: *Self) Out {
+        const result = self.b;
+        self.counter +%= dev.oddPhiFraction(Out);
+        self.a = self.b ^ (self.b >> 1);
+        self.b = self.c +% (self.c << 2);
+        self.c = std.math.rotl(Out, self.c, 3) +% self.a +% self.b +% self.counter;
+        return result;
+    }
+
+    pub const Seed = u32;
+    pub const Out = u8;
 
     // -------------------------------- Internal --------------------------------
 
@@ -343,18 +453,20 @@ const RedBase = struct {
         return self;
     }
 
-    fn algo(data: *Data, value: Out) void {
+    fn algo(data: *Data, value: Out) Out {
+        var result: Out = undefined;
         for (data.algo) |a| {
             switch (a) {
                 0 => { // Mixin
                     const t = value;
                     switch (data.config[0]) {
-                        0 => data.state ^= t,
-                        1 => data.state +%= t,
-                        2 => data.state -%= t,
-                        3 => data.state = t -% data.state,
+                        0 => result = data.state ^ t,
+                        1 => result = data.state +% t,
+                        2 => result = data.state -% t,
+                        3 => result = t -% data.state,
                         else => unreachable,
                     }
+                    data.state = result;
                 },
                 1 => { // XorShift
                     data.state ^= data.state >> bits.ShiftCast(Out, data.config[1] + 1);
@@ -368,6 +480,7 @@ const RedBase = struct {
                 else => unreachable,
             }
         }
+        return result;
     }
 
     const Data = RedData;
