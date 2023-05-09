@@ -5,6 +5,7 @@ const rng = @import("rng.zig");
 const dev = @import("rng_dev.zig");
 const bits = @import("bits.zig");
 const tRNG = @import("testingRNG.zig");
+const avelancheTest = @import("avelancheTest.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const alloc = gpa.allocator();
@@ -34,6 +35,7 @@ fn perm16(value: u16) u16 {
     return @intCast(u16, v[1]) << 8 | v[0];
 }
 pub fn main() !void {
+    _ = try avelancheTest.avelancheTest(rng.SFC8, 1 << 10, alloc);
     // try permutationCheck(u16, perm16);
 
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
