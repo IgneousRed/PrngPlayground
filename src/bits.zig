@@ -28,37 +28,25 @@ pub fn ShiftCast(comptime T: type, value: anytype) ShiftType(T) {
     return @intCast(ShiftType(T), value);
 }
 
-/// bit rotate right.
-pub fn ror(comptime bits: comptime_int, source: U(bits), amount: ShiftType(bits)) U(bits) {
-    return source >> amount | source << -%amount;
+pub fn shl(value: anytype, amount: anytype) @TypeOf(value) {
+    return value << @intCast(ShiftType(@TypeOf(value)), amount);
 }
 
-/// 8bit rotate right.
-pub fn ror8(source: u8, amount: u3) u8 {
-    return source >> amount | source << -%amount;
+pub fn shr(value: anytype, amount: anytype) @TypeOf(value) {
+    return value >> @intCast(ShiftType(@TypeOf(value)), amount);
 }
 
-/// 16bit rotate right.
-pub fn ror16(source: u16, amount: u4) u16 {
-    return source >> amount | source << -%amount;
+/// Bit rotate left, better asm support than `ror`.
+pub fn rol(value: anytype, amount: anytype) @TypeOf(value) {
+    const a = @intCast(ShiftType(@TypeOf(value)), amount);
+    return value << a | value >> -%a;
 }
 
-/// 32bit rotate right.
-pub fn ror32(source: u32, amount: u5) u32 {
-    return source >> amount | source << -%amount;
+/// Bit rotate right, `rol` has better asm support.
+pub fn ror(value: anytype, amount: anytype) @TypeOf(value) {
+    const a = @intCast(ShiftType(@TypeOf(value)), amount);
+    return value << a | value >> -%a;
 }
-
-/// 64bit rotate right.
-pub fn ror64(source: u64, amount: u6) u64 {
-    return source >> amount | source << -%amount;
-}
-
-/// 128bit rotate right.
-pub fn ror128(source: u128, amount: u7) u128 {
-    return source >> amount | source << -%amount;
-}
-
-// pub fn split()
 
 /// Returns the low bits of an int.
 pub fn low(comptime T: type, int: anytype) T {

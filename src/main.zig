@@ -35,9 +35,9 @@ fn perm16(value: u16) u16 {
     return @intCast(u16, v[1]) << 8 | v[0];
 }
 pub fn main() !void {
-    _ = avelancheTest.avelancheTest(rng.SFC, 1 << 10);
     // try permutationCheck(u16, perm16);
 
+    // _ = avelancheTest.avelancheTest(rng.JSF64, 4, 1 << 16);
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
     // try testing(rng.Test, 1);
     // try transitionTest();
