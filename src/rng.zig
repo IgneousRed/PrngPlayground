@@ -319,7 +319,7 @@ pub const SFC8 = struct {
     const Self = @This();
 };
 
-pub const JSF8 = struct {
+pub const SFC = struct {
     state: [4]Out,
 
     pub fn init(seed: Seed) Self {
@@ -333,16 +333,46 @@ pub const JSF8 = struct {
     }
 
     pub fn next(self: *Self) Out {
-        const temp = self.state[0] -% std.math.rotl(Out, self.state[1], 1);
-        self.state[0] = self.state[1] ^ std.math.rotl(Out, self.state[2], 4);
-        self.state[1] = self.state[2] +% self.state[3];
+        const result = self.state[0] +% self.state[1] +% self.state[3];
+        self.state[0] = self.state[1] ^ (self.state[1] >> 11);
+        self.state[1] = self.state[2] +% (self.state[2] << 3);
+        self.state[2] = std.math.rotl(Out, self.state[2], 24) +% result;
+        self.state[3] +%= dev.oddPhiFraction(Out);
+        return result;
+    }
+
+    pub const Seed = u256;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const JSF64 = struct {
+    state: [4]Out,
+
+    pub fn init(seed: Seed) Self {
+        var value = seed *% dev.oddPhiFraction(Seed);
+        var state: [4]Out = undefined;
+        for (state) |*s| {
+            s.* = @truncate(Out, value);
+            value = value >> @bitSizeOf(Out);
+        }
+        return .{ .state = state };
+    }
+
+    pub fn next(self: *Self) Out {
+        const temp = self.state[0] -% std.math.rotl(Out, self.state[1], 7);
+        self.state[0] = self.state[1] ^ std.math.rotl(Out, self.state[2], 13);
+        self.state[1] = self.state[2] +% std.math.rotl(Out, self.state[3], 37);
         self.state[2] = self.state[3] +% temp;
         self.state[3] = temp +% self.state[0];
         return self.state[3];
     }
 
-    pub const Seed = u32;
-    pub const Out = u8;
+    pub const Seed = u256;
+    pub const Out = u64;
 
     // -------------------------------- Internal --------------------------------
 
