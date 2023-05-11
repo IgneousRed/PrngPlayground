@@ -50,17 +50,12 @@ pub fn avelancheTest(
     return result;
 }
 
-// pub fn printAvelanche(avelanche: Avelanche, wordBits: u8) void {
-//     const wBits = @intToFloat(f64, wordBits);
-//     // var all: f64 = undefined;
-//     // var freq: []f64 = undefined;
-//     for (avelanche) |tes, t| {
-//         for (tes) |bit, b| {
-//             var worst = score(bit[0], wBits);
-//             for (bit[0..]) |ave, a| {}
-//         }
-//     }
-// }
+pub fn avelancheSummary(avelanche: Avelanche) void {
+    var average: f64 = 0.0;
+    var worstBit: usize = 0;
+    var worstTest: usize = 0;
+    var worst: f64 = 0;
+}
 
 pub fn Avelanche(comptime Rng: type) type {
     const rng: Rng = undefined;
