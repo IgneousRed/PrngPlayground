@@ -36,8 +36,8 @@ fn perm16(value: u16) u16 {
 }
 pub fn main() !void {
     // try permutationCheck(u16, perm16);
-
-    _ = avelancheTest.avelancheTest(rng.JSF64, 4, 1 << 16);
+    const Rng = rng.SFC;
+    avelancheTest.avelancheSummary(Rng, avelancheTest.avelancheTest(Rng, 12, 1 << 16));
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
     // try testing(rng.Test, 1);
     // try transitionTest();

@@ -50,11 +50,28 @@ pub fn avelancheTest(
     return result;
 }
 
-pub fn avelancheSummary(avelanche: Avelanche) void {
-    var average: f64 = 0.0;
+pub fn avelancheSummary(comptime Rng: type, avelanche: Avelanche(Rng)) void {
+    const rng: Rng = undefined;
+    const wordBits = @bitSizeOf(@TypeOf(rng.state[0]));
+
+    var average: f64 = avelanche[0][0];
     var worstBit: usize = 0;
     var worstTest: usize = 0;
-    var worst: f64 = 0;
+    var worst: f64 = score(average, wordBits);
+
+    for (avelanche) |bit, b| {
+        for (bit) |tes, t| {
+            const sc = score(tes, wordBits);
+            average += tes;
+            if (worst > sc) {
+                worstBit = b;
+                worstTest = t;
+                worst = sc;
+            }
+        }
+    }
+    average = score(average / @intToFloat(f64, avelanche.len * 2), wordBits);
+    std.debug.print("average {d}, worst [{}][{}] {d}\n", .{ average, worstBit, worstTest, worst });
 }
 
 pub fn Avelanche(comptime Rng: type) type {
@@ -65,7 +82,5 @@ pub fn Avelanche(comptime Rng: type) type {
 }
 
 fn score(avelanche: f64, wordBits: f64) f64 {
-    const normalized = avelanche / wordBits;
-    if (normalized > 0.5) std.debug.print("KEK", .{avelanche});
-    return 1.0 / @fabs(normalized * 2.0 - 1.0);
+    return 1.0 / @fabs(avelanche / wordBits * 2.0 - 1.0);
 }

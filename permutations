@@ -19,6 +19,7 @@
 //
 // There exist more permutations than what can be made by combining these,
 // Here are some surprising ones:
+// x ^= rol(x, k0) ^ rol(x, k1);
 // x ^= y ^ y >> (y & 3);
 // x = rotl(y, y & 7) -% x;
 // x *%= y | 1;
