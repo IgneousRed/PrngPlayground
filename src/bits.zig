@@ -45,7 +45,27 @@ pub fn rol(value: anytype, amount: anytype) @TypeOf(value) {
 /// Bit rotate right, `rol` has better asm support.
 pub fn ror(value: anytype, amount: anytype) @TypeOf(value) {
     const a = @intCast(ShiftType(@TypeOf(value)), amount);
+    return value >> a | value >> -%a;
+}
+
+pub fn shlOverflow(value: anytype, amount: anytype) @TypeOf(value) {
+    return value << @truncate(ShiftType(@TypeOf(value)), amount);
+}
+
+pub fn shrOverflow(value: anytype, amount: anytype) @TypeOf(value) {
+    return value >> @truncate(ShiftType(@TypeOf(value)), amount);
+}
+
+/// Bit rotate left, better asm support than `ror`.
+pub fn rolOverflow(value: anytype, amount: anytype) @TypeOf(value) {
+    const a = @truncate(ShiftType(@TypeOf(value)), amount);
     return value << a | value >> -%a;
+}
+
+/// Bit rotate right, `rol` has better asm support.
+pub fn rorOverflow(value: anytype, amount: anytype) @TypeOf(value) {
+    const a = @truncate(ShiftType(@TypeOf(value)), amount);
+    return value >> a | value >> -%a;
 }
 
 /// Returns the low bits of an int.

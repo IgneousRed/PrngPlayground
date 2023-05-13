@@ -1,5 +1,6 @@
 const std = @import("std");
 const dev = @import("rng_dev.zig");
+const bits = @import("bits.zig");
 const Allocator = std.mem.Allocator;
 
 const Port = union { state: u8, inter: u8 };
@@ -112,9 +113,9 @@ fn RngState(comptime Word: type) type {
                     .p => |p| self.port(p) | 1,
                     .lcg => |lcg| if (lcg) dev.harmonicLCG(Word) else dev.harmonicMCG(Word),
                 },
-                .shiftLeft => |op| std.math.shl(Word, self.port(op.p), self.shift(op.v)),
-                .shiftRight => |op| std.math.shr(Word, self.port(op.p), self.shift(op.v)),
-                .rotateLeft => |op| std.math.rotl(Word, self.port(op.p), self.shift(op.v)),
+                .shiftLeft => |op| bits.shlOverflow(self.port(op.p), self.port(op.v)),
+                .shiftRight => |op| bits.shrOverflow(self.port(op.p), self.port(op.v)),
+                .rotateLeft => |op| bits.rolOverflow(self.port(op.p), self.port(op.v)),
                 .reverseBits => |p| @bitReverse(p),
                 .reverseBytes => |p| @byteSwap(p),
             };
@@ -131,7 +132,7 @@ fn RngState(comptime Word: type) type {
                 },
             }
 
-            std.mem.swap([]Word, &self.state, &self.stateNew);
+            std.mem.swap([]Word, &self.state, &self.stateNew); // TODO: ask
             return self.port(self.out);
         }
 
@@ -144,15 +145,15 @@ fn RngState(comptime Word: type) type {
             };
         }
 
-        fn shift(self: *Self, s: Shift) Word {
+        fn shift(self: *Self, s: Shift) Word { // TODO: use
             return switch (s) {
                 .v => |v| blk: {
                     comptime var b = std.math.log2(@bitSizeOf(Word));
                     if (v.half) b -= 1;
                     break :blk if (v.highBits)
-                        self.port(v.p) >> @intCast(std.math.Log2Int(Word), @bitSizeOf(Word) - b)
+                        @intCast(bits.ShiftType(Word), @bitSizeOf(Word) - b)
                     else
-                        self.port(v.p) & (1 << b - 1);
+                        @truncate()
                 },
                 .popCount => |p| @popCount(self.port(p)),
                 .k => |k| k + 1,
