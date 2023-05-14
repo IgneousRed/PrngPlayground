@@ -4,8 +4,16 @@ const bits = @import("bits.zig");
 const Allocator = std.mem.Allocator;
 
 const Port = union { state: u8, inter: u8 };
-const Shift = union { v: struct { p: Port, highBits: bool, half: bool }, popCount: Port, k: u8 };
-const Rotate = union { v: struct { p: Port, highBits: bool }, popCount: Port, k: u8 };
+
+const Shift = union {
+    v: struct {
+        p: Port,
+        highBits: bool,
+        half: bool,
+    },
+    popCount: Port,
+    k: u8,
+};
 
 const Operation = union {
     not: Port,
@@ -13,11 +21,11 @@ const Operation = union {
     add: struct { a: Port, b: Port },
     sub: struct { a: Port, b: Port },
     mul: struct { a: Port, v: union { p: Port, k: u8 } },
-    shiftLeft: struct { p: Port, s: Shift },
-    shiftRight: struct { p: Port, s: Shift },
-    rotateLeft: struct { p: Port, r: Rotate },
-    reverseBits: Port,
+    shiftLeft: struct { p: Port, a: Shift },
+    shiftRight: struct { p: Port, a: Shift },
+    rotateLeft: struct { p: Port, a: Shift },
     reverseBytes: Port,
+    reverseBits: Port,
 };
 
 const ConfigType = enum { mul, shift };
@@ -111,15 +119,18 @@ fn RngState(comptime Word: type) type {
                 .sub => |op| self.port(op.a) -% self.port(op.b),
                 .mul => |op| self.port(op.a) *% switch (op.v) {
                     .p => |p| self.port(p) | 1,
-                    .lcg => |lcg| if (lcg) dev.harmonicLCG(Word) else dev.harmonicMCG(Word),
+                    .k => |k| if (self.config[k] == 0)
+                        dev.harmonicMCG(Word)
+                    else
+                        dev.harmonicLCG(Word),
                 },
-                .shiftLeft => |op| bits.shlOverflow(self.port(op.p), self.port(op.v)),
-                .shiftRight => |op| bits.shrOverflow(self.port(op.p), self.port(op.v)),
-                .rotateLeft => |op| bits.rolOverflow(self.port(op.p), self.port(op.v)),
-                .reverseBits => |p| @bitReverse(p),
+                .shiftLeft => |op| bits.shlOverflow(self.port(op.p), self.shift(op.a)),
+                .shiftRight => |op| bits.shrOverflow(self.port(op.p), self.shift(op.a)),
+                .rotateLeft => |op| bits.rolOverflow(self.port(op.p), self.shift(op.a)),
                 .reverseBytes => |p| @byteSwap(p),
+                .reverseBits => |p| @bitReverse(p),
             };
-            for (self.algo.state) |s, i| self.stateNew[i] = self.port(s);
+            for (self.algo.state) |s, i| self.stateNew[i] = self.port(s); // TODO: Counter first?
 
             const stateBound = self.state.len - 1;
             self.stateNew[stateBound] = self.state[stateBound];
@@ -145,18 +156,16 @@ fn RngState(comptime Word: type) type {
             };
         }
 
-        fn shift(self: *Self, s: Shift) Word { // TODO: use
-            return switch (s) {
+        fn shift(self: *Self, s: Shift) Word {
+            return switch (s.a) {
                 .v => |v| blk: {
-                    comptime var b = std.math.log2(@bitSizeOf(Word));
-                    if (v.half) b -= 1;
-                    break :blk if (v.highBits)
-                        @intCast(bits.ShiftType(Word), @bitSizeOf(Word) - b)
-                    else
-                        @truncate()
+                    var typ = bits.ShiftType(Word);
+                    if (v.half) typ = bits.U(@typeInfo(typ).Int.bits - 1);
+                    const value = self.port(v.p);
+                    break :blk if (v.highBits) bits.high(typ, value) else bits.low(typ, value);
                 },
                 .popCount => |p| @popCount(self.port(p)),
-                .k => |k| k + 1,
+                .k => |k| self.config[k] + 1,
             };
         }
 
