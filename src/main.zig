@@ -40,7 +40,7 @@ pub fn main() !void {
     // avelancheTest.avelancheSummary(Rng, avelancheTest.avelancheTest(Rng, 12, 1 << 16));
 
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
-    // try testing(rng.Test, 1);
+    try testing(rng.Test, 1);
     // try transitionTest();
     // mulXshSearch();
     // try permutationCheck(u16, perm16);

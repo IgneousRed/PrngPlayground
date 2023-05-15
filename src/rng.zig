@@ -379,6 +379,56 @@ pub const JSF64 = struct {
     const Self = @This();
 };
 
+pub const Wyhash64 = struct {
+    state: Seed,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed };
+    }
+    pub fn next(self: *Self) Out {
+        self.state +%= 0x60bee2bee120fc15;
+        return Self.hash(Self.hash(self.state, 0xa3b195354a39b70d), 0x1b03738712fad5c9);
+    }
+
+    pub const Seed = u64;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    fn hash(a: Out, b: Out) Out {
+        var mul = @intCast(u128, a) *% b;
+        return bits.high(Out, mul) ^ bits.low(Out, mul);
+    }
+
+    const Self = @This();
+};
+
+pub const Test = struct {
+    state: Out,
+    a: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed, .a = seed };
+    }
+    pub fn next(self: *Self) Out {
+        self.state +%= dev.oddPhiFraction(Out);
+        self.a = Self.hash(self.state, dev.oddPhiFraction(Out));
+        return Self.hash(self.state, self.a | 1);
+    }
+
+    pub const Seed = Out;
+    pub const Out = u8;
+
+    // -------------------------------- Internal --------------------------------
+
+    fn hash(a: Out, b: Out) Out {
+        var mul = @intCast(bits.U(@bitSizeOf(Out) * 2), a) * b;
+        return bits.high(Out, mul) ^ bits.low(Out, mul);
+    }
+
+    const Self = @This();
+};
+
 pub const NonDeter = struct {
     pub usingnamespace Base;
     data: Data,
