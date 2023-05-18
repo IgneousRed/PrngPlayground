@@ -385,39 +385,14 @@ pub const Wyhash64 = struct {
     pub fn init(seed: Seed) Self {
         return .{ .state = seed };
     }
+
     pub fn next(self: *Self) Out {
         self.state +%= 0x60bee2bee120fc15;
         return Self.hash(Self.hash(self.state, 0xa3b195354a39b70d), 0x1b03738712fad5c9);
     }
 
-    pub const Seed = u64;
-    pub const Out = u64;
-
-    // -------------------------------- Internal --------------------------------
-
-    fn hash(a: Out, b: Out) Out {
-        var mul = @intCast(u128, a) *% b;
-        return bits.high(Out, mul) ^ bits.low(Out, mul);
-    }
-
-    const Self = @This();
-};
-
-pub const Test = struct {
-    state: Out,
-    a: Out,
-
-    pub fn init(seed: Seed) Self {
-        return .{ .state = seed, .a = seed };
-    }
-    pub fn next(self: *Self) Out {
-        self.state +%= dev.oddPhiFraction(Out);
-        self.a = Self.hash(self.state, dev.oddPhiFraction(Out));
-        return Self.hash(self.state, self.a | 1);
-    }
-
     pub const Seed = Out;
-    pub const Out = u8;
+    pub const Out = u64;
 
     // -------------------------------- Internal --------------------------------
 
@@ -425,6 +400,121 @@ pub const Test = struct {
         var mul = @intCast(bits.U(@bitSizeOf(Out) * 2), a) * b;
         return bits.high(Out, mul) ^ bits.low(Out, mul);
     }
+
+    const Self = @This();
+};
+
+pub const MiddleSquare = struct {
+    state: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed *% dev.oddPhiFraction(Out) };
+    }
+
+    pub fn next(self: *Self) Out {
+        const temp = @intCast(bits.U(@bitSizeOf(Out) * 2), self.state) * self.state;
+        self.state = @truncate(Out, temp >> @bitSizeOf(Out) / 2);
+        return self.state;
+    }
+
+    pub const Seed = Out;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const Wy = struct {
+    state: Out,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed *% dev.oddPhiFraction(Out) };
+    }
+
+    pub fn next(self: *Self) Out {
+        const temp = @intCast(bits.U(@bitSizeOf(Out) * 2), self.state) * self.state;
+        self.state = bits.high(Out, temp) ^ bits.low(Out, temp);
+        return self.state;
+    }
+
+    pub const Seed = Out;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
+pub const MWC = struct {
+    state: State,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed *% dev.oddPhiFraction(Seed) +% 1 };
+    }
+
+    pub fn next(self: *Self) Out {
+        const temp = bits.low(Out, self.state);
+        self.state = @as(State, dev.harmonicLCG(Out)) * temp +% bits.high(Out, self.state);
+        return temp;
+    }
+
+    pub const Seed = Out;
+    pub const Out = u32;
+
+    // -------------------------------- Internal --------------------------------
+
+    const State = bits.U(@bitSizeOf(Out) * 2);
+    const Self = @This();
+};
+
+/// Out Mul Mix Fail order
+/// u32 lcg no  26: TMFn, 28: Gap
+/// u32 lcg ye  32: TMFn, 35: All
+/// u64 lcg no  37: TMFn, ?
+/// u64 lcg ye  ?
+pub const Test = struct {
+    state: Seed,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed *% dev.oddPhiFraction(Seed) };
+    }
+
+    pub fn next(self: *Self) Out {
+        var temp = Self.mul(self.state, dev.harmonicLCG(Out));
+        self.state = temp.low +% dev.oddPhiFraction(Out);
+        // temp = Self.mul(temp.high, temp.low | 1);
+        return temp.high ^ temp.low;
+    }
+
+    pub const Seed = Out;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    fn mul(a: Out, b: Out) struct { high: Out, low: Out } {
+        var temp = @intCast(bits.U(@bitSizeOf(Out) * 2), a) * b;
+        return .{ .high = bits.high(Out, temp), .low = bits.low(Out, temp) };
+    }
+
+    const Self = @This();
+};
+
+pub const One = struct {
+    pub fn init(seed: Seed) Self {
+        _ = seed;
+        return .{};
+    }
+
+    pub fn next(self: *Self) Out {
+        _ = self;
+        return ~@as(Out, 0);
+    }
+
+    pub const Seed = Out;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
 
     const Self = @This();
 };

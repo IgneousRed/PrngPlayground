@@ -5,8 +5,6 @@ const Allocator = std.mem.Allocator;
 
 const Port = union { state: u8, inter: u8 };
 
-const Multiply = struct { a: Port, v: union { p: Port, k: u8 } };
-
 const Shift = union {
     v: struct {
         p: Port,
@@ -22,8 +20,7 @@ const Operation = union {
     xor: struct { a: Port, b: Port },
     add: struct { a: Port, b: Port },
     sub: struct { a: Port, b: Port },
-    mulLow: Multiply,
-    mulHigh: Multiply,
+    mul: struct { a: Port, v: union { p: Port, k: u8 }, highBits: bool },
     shiftLeft: struct { p: Port, a: Shift },
     shiftRight: struct { p: Port, a: Shift },
     rotateLeft: struct { p: Port, a: Shift },
@@ -121,8 +118,20 @@ fn RngState(comptime Word: type) type {
                 .xor => |op| self.port(op.a) ^ self.port(op.b),
                 .add => |op| self.port(op.a) +% self.port(op.b),
                 .sub => |op| self.port(op.a) -% self.port(op.b),
-                .mulLow => |op| bits.low(Word, self.multiply(op)),
-                .mulHigh => |op| bits.high(Word, self.multiply(op)),
+                .mul => |op| blk: {
+                    const mult = @intCast(Word2, self.port(op.a)) * switch (op.v) {
+                        .p => |p| self.port(p) | 1,
+                        .k => |k| switch (self.config[k]) {
+                            0 => dev.harmonicMCG(Word),
+                            1 => dev.harmonicLCG(Word),
+                            else => dev.oddPhiFraction(Word),
+                        },
+                    };
+                    break :blk if (op.highBits)
+                        bits.high(Word, mult)
+                    else
+                        bits.low(Word, mult);
+                },
                 .shiftLeft => |op| bits.shlOverflow(self.port(op.p), self.shift(op.a)),
                 .shiftRight => |op| bits.shrOverflow(self.port(op.p), self.shift(op.a)),
                 .rotateLeft => |op| bits.rolOverflow(self.port(op.p), self.shift(op.a)),
@@ -147,18 +156,6 @@ fn RngState(comptime Word: type) type {
         }
 
         // -------------------------------- Internal --------------------------------
-
-        fn multiply(self: *Self, m: Multiply) Word2 {
-            const v = switch (m.v) {
-                .p => |p| self.port(p) | 1,
-                .k => |k| switch (self.config[k]) {
-                    0 => dev.harmonicMCG(Word),
-                    1 => dev.harmonicLCG(Word),
-                    else => dev.oddPhiFraction(Word),
-                },
-            };
-            return @intCast(Word2, self.port(m.a)) * v;
-        }
 
         fn shift(self: *Self, s: Shift) Word {
             return switch (s.a) {

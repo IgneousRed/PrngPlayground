@@ -28,22 +28,38 @@ fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
     std.debug.print("{any}\n", .{buckets});
 }
 fn perm16(value: u16) u16 {
-    var v = [2]u8{ bits.high(u8, value), bits.low(u8, value) };
-    v[0] = std.math.rotl(u8, v[0], @popCount(v[1]));
-    // v[0] = @bitReverse(v[1]) -% std.math.rotl(u8, v[0], v[1] >> 5);
-    // v[1] = v[1] *% 33 +% 77;
-    return @intCast(u16, v[1]) << 8 | v[0];
+    const val = value ^ ~dev.oddPhiFraction(u16);
+    var v = [2]u8{ bits.high(u8, val), bits.low(u8, val) };
+    v[0] *%= v[1] | 1;
+    v[0] = bits.rol(v[0], 4);
+    v[1] *%= v[0] | 1;
+    v[1] = bits.rol(v[1], 4);
+    var result = bits.concat(u16, v[0], v[1]);
+    return result;
+}
+fn mult(a: u8, b: u8) struct { high: u8, low: u8 } {
+    var temp = @intCast(u16, a) * b;
+    return .{ .high = bits.high(u8, temp), .low = bits.low(u8, temp) };
 }
 pub fn main() !void {
-    // try permutationCheck(u16, perm16);
+    // var i: usize = 0;
+    // var s: u16 = 0;
+    // while (true) {
+    //     s *%= 4 * 4 + 1;
+    //     s +%= 0b0001;
+    //     if (s == 0) break;
+    //     i += 1;
+    // }
+    // std.debug.print("{}", .{i});
+
+    // permutationCheck(u16, perm16);
     // const Rng = rng.SFC;
     // avelancheTest.avelancheSummary(Rng, avelancheTest.avelancheTest(Rng, 12, 1 << 16));
 
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
-    try testing(rng.Test, 1);
+    try testing(rng.One, 0);
+    // try testing(rng.Test, 0);
     // try transitionTest();
-    // mulXshSearch();
-    // try permutationCheck(u16, perm16);
     // time();
 }
 fn testing(comptime RNG: type, seed: RNG.Seed) !void {
@@ -59,7 +75,7 @@ fn testing(comptime RNG: type, seed: RNG.Seed) !void {
         "10",
         "-tlmax",
         "99",
-        // "-tlmaxonly",
+        "-tlmaxonly",
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
@@ -98,49 +114,7 @@ fn transitionTest(comptime T: type, comptime f: fn (T) T) !void {
     const delta = std.time.timestamp() - timeStart;
     std.debug.print("Running Time: {} sec\n", .{delta});
 }
-fn mulXshSearch() void {
-    const bitSize = 12;
-    const T = bits.U(bitSize);
-    var goodCount: usize = 0;
-    var mul: T = 5;
-    while (true) {
-        var add: T = 1;
-        while (true) {
-            var good = true;
-            var set = std.bit_set.ArrayBitSet(usize, 1 << bitSize).initEmpty();
-            var state: T = 1;
-            var i: usize = 0;
-            while (i < 1 << bitSize) {
-                var new = state *% mul;
-                new +%= add;
-                state = new ^ new >> bitSize / 2;
-                if (set.isSet(state)) {
-                    good = false;
-                    break;
-                }
-                set.set(state);
-                i += 1;
-            }
-            if (good) {
-                goodCount += 1;
-                // std.debug.print("{d:0>4}\n", .{mul});
-                // std.debug.print("{d:0>4} {d:0>4}\n", .{ mul, add });
-            }
-            add +%= 2;
-            if (add == 1) {
-                break;
-            }
-        }
-        mul +%= 8;
-        if (mul == 5) {
-            break;
-        }
-    }
-    const total = (1 << bitSize) * (1 << bitSize);
-    const proc = @intToFloat(f64, goodCount) / @intToFloat(f64, total);
-    std.debug.print("{} out of {}, or {d}%\n", .{ goodCount, total, proc });
-}
-fn permutationCheck(comptime T: type, comptime f: fn (T) T) !void {
+fn permutationCheck(comptime T: type, comptime f: fn (T) T) void {
     const timeStart = std.time.timestamp();
     var bitsSet = std.StaticBitSet(1 << @bitSizeOf(T)).initEmpty();
     var i: T = 0;

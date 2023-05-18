@@ -4,3 +4,13 @@ Not Fail
 Fail
     [Low1/8]FPF-14+6/64:all         6e-12
     FPF-14+6/64:all                 1-1.0e-13
+
+Tests
+    BCFN
+    mod3n
+    BRank
+    TMFn
+    DC7
+    FPF
+    FPM
+    Gap

@@ -1,9 +1,5 @@
 const std = @import("std");
 
-pub fn size(comptime T: type) comptime_int {
-    return @bitSizeOf(T);
-}
-
 pub fn typeSize(comptime value: anytype) comptime_int {
     return @bitSizeOf(@TypeOf(value));
 }
@@ -78,6 +74,37 @@ pub fn high(comptime T: type, int: anytype) T {
     return @intCast(T, int >> @bitSizeOf(@TypeOf(int)) - @bitSizeOf(T));
 }
 
+pub fn Half(comptime T: type) type {
+    const size = @bitSizeOf(T);
+    if (size % 2 != 0) @compileError("Type bit size must be even");
+    return U(size / 2);
+}
+
+pub fn SplitHalf(comptime T: type) type {
+    const I = Half(T);
+    return struct { high: I, low: I };
+}
+
+pub fn splitHalf(comptime T: type, int: T) SplitHalf(T) {
+    const I = U(@bitSizeOf(@TypeOf(int)) / 2);
+    return .{ .high = high(I, int), .low = low(I, int) };
+}
+
 pub fn concat(comptime T: type, highInt: anytype, lowInt: anytype) T {
     return @intCast(T, highInt) << @bitSizeOf(@TypeOf(lowInt)) | lowInt;
 }
+
+// pub fn Concat(a: anytype, b: anytype) type {
+//     const A = @TypeOf(a);
+//     const B = @TypeOf(b);
+//     const AI = @typeInfo(A);
+//     const BI = @typeInfo(B);
+//     if (AI != .Int) @compileError("Concat only works with ints");
+//     if (BI != .Int) @compileError("Concat only works with ints");
+//     if (AI.Int.signedness != BI.Int.signedness) @compileError("Ints must have same signedness");
+//     return std.meta.Int(AI.Int.signedness, @bitSizeOf(A) + @bitSizeOf(B));
+// }
+
+// pub fn concat(highInt: anytype, lowInt: anytype) Concat(highInt, lowInt) {
+//     return @intCast(Concat(highInt, lowInt), highInt) << @bitSizeOf(@TypeOf(lowInt)) | low;
+// }
