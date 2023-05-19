@@ -132,9 +132,9 @@ fn RngState(comptime Word: type) type {
                     else
                         bits.low(Word, mult);
                 },
-                .shiftLeft => |op| bits.shlOverflow(self.port(op.p), self.shift(op.a)),
-                .shiftRight => |op| bits.shrOverflow(self.port(op.p), self.shift(op.a)),
-                .rotateLeft => |op| bits.rolOverflow(self.port(op.p), self.shift(op.a)),
+                .shiftLeft => |op| bits.shlOvf(self.port(op.p), self.shift(op.a)),
+                .shiftRight => |op| bits.shrOvf(self.port(op.p), self.shift(op.a)),
+                .rotateLeft => |op| bits.rolOvf(self.port(op.p), self.shift(op.a)),
                 .reverseBytes => |p| @byteSwap(p),
                 .reverseBits => |p| @bitReverse(p),
             };

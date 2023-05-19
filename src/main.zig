@@ -60,12 +60,7 @@ pub fn main() !void {
 
     try transitionTest();
 }
-const O = u4;
-const S = bits.U(@bitSizeOf(O) * 2);
-var m: S = 0;
-fn qwe(state: S) S {
-    return m * bits.low(O, state) +% bits.high(O, state);
-}
+
 fn testing(comptime RNG: type, seed: RNG.Seed) !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
