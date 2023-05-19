@@ -28,12 +28,9 @@ fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
     std.debug.print("{any}\n", .{buckets});
 }
 fn perm16(value: u16) u16 {
-    const val = value ^ ~dev.oddPhiFraction(u16);
-    var v = [2]u8{ bits.high(u8, val), bits.low(u8, val) };
+    var v = [2]u8{ bits.high(u8, value), bits.low(u8, value) };
     v[0] *%= v[1] | 1;
-    v[0] = bits.rol(v[0], 4);
-    v[1] *%= v[0] | 1;
-    v[1] = bits.rol(v[1], 4);
+    v[0] +%= v[1];
     var result = bits.concat(u16, v[0], v[1]);
     return result;
 }
@@ -57,10 +54,17 @@ pub fn main() !void {
     // avelancheTest.avelancheSummary(Rng, avelancheTest.avelancheTest(Rng, 12, 1 << 16));
 
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
-    try testing(rng.One, 0);
+    // try testing(rng.MSWS, 0);
     // try testing(rng.Test, 0);
-    // try transitionTest();
     // time();
+
+    try transitionTest();
+}
+const O = u4;
+const S = bits.U(@bitSizeOf(O) * 2);
+var m: S = 0;
+fn qwe(state: S) S {
+    return m * bits.low(O, state) +% bits.high(O, state);
 }
 fn testing(comptime RNG: type, seed: RNG.Seed) !void {
     var child = std.ChildProcess.init(&[_][]const u8{
@@ -94,22 +98,18 @@ fn testing(comptime RNG: type, seed: RNG.Seed) !void {
 }
 fn transitionTest(comptime T: type, comptime f: fn (T) T) !void {
     const timeStart = std.time.timestamp();
-    var bitsSet = std.StaticBitSet(1 << @bitSizeOf(T)).initEmpty();
+    var bitsSet = try alloc.create(std.StaticBitSet(1 << @bitSizeOf(T)));
+    bitsSet.initEmpty();
     var i: T = 0;
     if (blk: while (true) {
-        const index = f(i);
-        if (bitsSet.isSet(index)) {
-            break :blk false;
-        }
-        bitsSet.set(index);
-        i +%= 1;
-        if (i == 0) {
-            break :blk true;
-        }
+        i = f(i);
+        if (bitsSet.isSet(i)) break :blk false;
+        bitsSet.set(i);
+        if (i == 0) break :blk true;
     }) {
-        std.debug.print("The function is a permutation!\n", .{});
+        std.debug.print("The function has 1 cycle!\n", .{});
     } else {
-        std.debug.print("The function is NOT a permutation\n", .{});
+        std.debug.print("The function has more cycles\n", .{});
     }
     const delta = std.time.timestamp() - timeStart;
     std.debug.print("Running Time: {} sec\n", .{delta});

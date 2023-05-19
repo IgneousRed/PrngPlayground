@@ -500,6 +500,40 @@ pub const Test = struct {
     const Self = @This();
 };
 
+pub const MSWS = struct {
+    state: Seed,
+    weyl: Seed = 0,
+    state1: Seed = 0,
+    weyl1: Seed = 0,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed *% dev.oddPhiFraction(Seed) };
+    }
+
+    pub fn next(self: *Self) Out {
+        defer self.weyl +%= dev.oddPhiFraction(Seed);
+        defer self.weyl1 -%= dev.oddPhiFraction(Seed);
+
+        self.state *%= self.state;
+        self.state +%= self.weyl;
+        const result = self.state;
+        self.state = bits.rol(self.state, @bitSizeOf(Seed) / 2);
+
+        self.state1 *%= self.state1;
+        self.state1 +%= self.weyl1;
+        self.state1 = bits.rol(self.state1, @bitSizeOf(Seed) / 2);
+
+        return result ^ self.state1;
+    }
+
+    pub const Seed = Out;
+    pub const Out = u64;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
 pub const One = struct {
     pub fn init(seed: Seed) Self {
         _ = seed;
