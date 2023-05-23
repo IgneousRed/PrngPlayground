@@ -6,12 +6,24 @@ const Allocator = std.mem.Allocator;
 const Port = union { state: u8, inter: u8 };
 
 const Shift = union {
-    v: struct {
-        p: Port,
-        highBits: bool,
+    value: struct {
+        port: Port,
+        high: bool,
         half: bool,
     },
     popCount: Port,
+    k: u8,
+};
+
+const Rotate = union {
+    variable: struct { source: union {
+        value: struct {
+            port: Port,
+            high: bool,
+            half: bool,
+        },
+        popCount: Port,
+    }, right: bool },
     k: u8,
 };
 
@@ -20,12 +32,16 @@ const Operation = union {
     xor: struct { a: Port, b: Port },
     add: struct { a: Port, b: Port },
     sub: struct { a: Port, b: Port },
-    mul: struct { a: Port, v: union { p: Port, k: u8 }, highBits: bool },
-    shiftLeft: struct { p: Port, a: Shift },
-    shiftRight: struct { p: Port, a: Shift },
-    rotateLeft: struct { p: Port, a: Shift },
+    shiftLeft: struct { port: Port, amount: Shift },
+    shiftRight: struct { port: Port, amount: Shift },
+    rotateRight: struct { port: Port, amount: Shift },
     reverseBytes: Port,
     reverseBits: Port,
+    // mul: struct { a: Port, value: union { raw: Port, odd: Port, k: u8 } },
+    // append: struct { high: Port, low: Port },
+    // low: Port,
+    // high: Port,
+    // middle: Port,
 };
 
 const ConfigType = enum { mul, shift };
@@ -92,7 +108,7 @@ const RngAlgo = struct {
 // };
 
 fn RngState(comptime Word: type) type {
-    const Word2 = bits.U(@bitSizeOf(Word) * 2);
+    // const Word2 = bits.U(@bitSizeOf(Word) * 2);
     return struct {
         state: []Word,
         intermediate: []Word,
@@ -118,38 +134,52 @@ fn RngState(comptime Word: type) type {
                 .xor => |op| self.port(op.a) ^ self.port(op.b),
                 .add => |op| self.port(op.a) +% self.port(op.b),
                 .sub => |op| self.port(op.a) -% self.port(op.b),
-                .mul => |op| blk: {
-                    const mult = @intCast(Word2, self.port(op.a)) * switch (op.v) {
-                        .p => |p| self.port(p) | 1,
-                        .k => |k| switch (self.config[k]) {
-                            0 => dev.harmonicMCG(Word),
-                            1 => dev.harmonicLCG(Word),
-                            else => dev.oddPhiFraction(Word),
-                        },
-                    };
-                    break :blk if (op.highBits)
-                        bits.high(Word, mult)
-                    else
-                        bits.low(Word, mult);
-                },
                 .shiftLeft => |op| bits.shlOvf(self.port(op.p), self.shift(op.a)),
                 .shiftRight => |op| bits.shrOvf(self.port(op.p), self.shift(op.a)),
-                .rotateLeft => |op| bits.rolOvf(self.port(op.p), self.shift(op.a)),
+                .rotate => |op| blk: {
+                    if (op.amount == .k) break :blk bits.ror(op.port, self.config[op.amount.k]);
+
+                    // const qwe = switch (op.a) {
+                    //     .v => |v| asd: {
+                    //         var T = bits.ShiftType(Word);
+                    //         if (v.half) T = bits.U(@bitSizeOf(T) - 1);
+                    //         const value = self.port(v.p);
+                    //         break :asd if (v.highBits) bits.high(T, value) else bits.low(T, value);
+                    //     },
+                    //     .popCount => |p| @popCount(self.port(p)),
+                    //     .k => |k| self.config[k] + 1,
+                    // };
+                    // bits.rolOvf(self.port(op.p), qwe);
+                    break :blk 69; // TODO: finish
+                },
                 .reverseBytes => |p| @byteSwap(p),
                 .reverseBits => |p| @bitReverse(p),
+                // .mul => |op| @intCast(Word2, self.port(op.a)) * switch (op.v) {
+                //     .raw => |p| self.port(p),
+                //     .odd => |p| self.port(p) | 1,
+                //     .k => |k| switch (self.config[k]) {
+                //         0 => dev.harmonicMCG(Word),
+                //         1 => dev.harmonicLCG(Word),
+                //         else => dev.oddPhiFraction(Word),
+                //     },
+                // },
+                // .append => |op| ,
+                // .low => |op| ,
+                // .high => |op| ,
+                // .middle => |op| ,
             };
-            for (self.algo.state) |s, i| self.stateNew[i] = self.port(s); // TODO: Counter first?
 
-            const stateBound = self.state.len - 1;
-            self.stateNew[stateBound] = self.state[stateBound];
+            self.stateNew[0] = self.state[0];
             switch (self.algo.counterType) {
-                .basic => self.stateNew[stateBound] +%= dev.oddPhiFraction(Word),
-                .mcg => self.stateNew[stateBound] *%= dev.harmonicMCG(Word),
+                .basic => self.stateNew[0] +%= dev.oddPhiFraction(Word),
+                .mcg => self.stateNew[0] *%= dev.harmonicMCG(Word),
                 .lcg => {
-                    self.stateNew[stateBound] *%= dev.harmonicLCG(Word);
-                    self.stateNew[stateBound] +%= dev.oddPhiFraction(Word);
+                    self.stateNew[0] *%= dev.harmonicLCG(Word);
+                    self.stateNew[0] +%= dev.oddPhiFraction(Word);
                 },
             }
+
+            for (self.algo.state) |s, i| self.stateNew[i + 1] = self.port(s);
 
             std.mem.swap([*]Word, &self.state.ptr, &self.stateNew.ptr);
             return self.port(self.out);
