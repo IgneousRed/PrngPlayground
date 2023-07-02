@@ -349,6 +349,26 @@ pub const SFC = struct {
     const Self = @This();
 };
 
+pub const OldJavaRng = struct {
+    state: Seed,
+
+    pub fn init(seed: Seed) Self {
+        return .{ .state = seed *% dev.oddPhiFraction(Seed) };
+    }
+
+    pub fn next(self: *Self) Out {
+        self.state = (self.state *% dev.harmonicMCG(Seed) +% dev.oddPhiFraction(Seed));
+        return @truncate(Out, self.state >> 32);
+    }
+
+    pub const Seed = u64;
+    pub const Out = u32;
+
+    // -------------------------------- Internal --------------------------------
+
+    const Self = @This();
+};
+
 pub const JSF64 = struct {
     state: [4]Out,
 

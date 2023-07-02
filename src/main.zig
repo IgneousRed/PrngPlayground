@@ -58,7 +58,7 @@ pub fn main() !void {
     // try testing(rng.Test, 0);
     // time();
 
-    try transitionTest();
+    // try transitionTest();
 }
 
 fn testing(comptime RNG: type, seed: RNG.Seed) !void {
@@ -74,7 +74,7 @@ fn testing(comptime RNG: type, seed: RNG.Seed) !void {
         "10",
         "-tlmax",
         "99",
-        "-tlmaxonly",
+        // "-tlmaxonly",
         "-multithreaded",
     }, alloc);
     child.stdin_behavior = .Pipe;
