@@ -29,9 +29,21 @@ fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
 }
 fn perm16(value: u16) u16 {
     var v = [2]u8{ bits.high(u8, value), bits.low(u8, value) };
-    v[0] *%= v[1] | 1;
-    v[0] +%= v[1];
+    var q = v[0] +% v[1];
+    var w = v[1] +% v[0];
+    v[0] = q;
+    v[1] = w;
     var result = bits.concat(u16, v[0], v[1]);
+    return result;
+}
+fn perm32(value: u32) u32 {
+    var v = [4]u8{ bits.high(u8, value), bits.low(u8, bits.high(u16, value)), bits.high(u8, bits.low(u16, value)), bits.low(u8, value) };
+    v[0] -%= v[1];
+    v[2] -%= v[3];
+
+    v[1] -%= v[0];
+    v[3] -%= v[2];
+    var result = bits.concat(u32, bits.concat(u16, v[0], v[1]), bits.concat(u16, v[2], v[3]));
     return result;
 }
 fn mult(a: u8, b: u8) struct { high: u8, low: u8 } {
@@ -39,6 +51,7 @@ fn mult(a: u8, b: u8) struct { high: u8, low: u8 } {
     return .{ .high = bits.high(u8, temp), .low = bits.low(u8, temp) };
 }
 pub fn main() !void {
+    // std.debug.print("{x}", .{dev.oddPhiFraction(u128)});
     // var i: usize = 0;
     // var s: u16 = 0;
     // while (true) {
@@ -49,11 +62,12 @@ pub fn main() !void {
     // }
     // std.debug.print("{}", .{i});
 
-    // permutationCheck(u16, perm16);
+    // try permutationCheck(u32, perm32);
     // const Rng = rng.SFC;
     // avelancheTest.avelancheSummary(Rng, avelancheTest.avelancheTest(Rng, 12, 1 << 16));
 
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
+    // try testing(rng.SFC8, 0);
     // try testing(rng.MSWS, 0);
     // try testing(rng.Test, 0);
     // time();
@@ -109,9 +123,9 @@ fn transitionTest(comptime T: type, comptime f: fn (T) T) !void {
     const delta = std.time.timestamp() - timeStart;
     std.debug.print("Running Time: {} sec\n", .{delta});
 }
-fn permutationCheck(comptime T: type, comptime f: fn (T) T) void {
+fn permutationCheck(comptime T: type, comptime f: fn (T) T) !void {
     const timeStart = std.time.timestamp();
-    var bitsSet = std.StaticBitSet(1 << @bitSizeOf(T)).initEmpty();
+    var bitsSet = try std.DynamicBitSet.initEmpty(alloc, 1 << @bitSizeOf(T));
     var i: T = 0;
     if (blk: while (true) {
         const index = f(i);

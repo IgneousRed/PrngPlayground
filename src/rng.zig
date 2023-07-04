@@ -307,7 +307,7 @@ pub const SFC8 = struct {
         self.state[0] = self.state[1] ^ (self.state[1] >> 1);
         self.state[1] = self.state[2] +% (self.state[2] << 2);
         self.state[2] = std.math.rotl(Out, self.state[2], 3) +% result;
-        self.state[3] +%= dev.oddPhiFraction(Out);
+        self.state[3] +%= 1;
         return result;
     }
 
@@ -521,33 +521,32 @@ pub const Test = struct {
 };
 
 pub const MSWS = struct {
-    state: Seed,
-    weyl: Seed = 0,
+    state0: Seed,
     state1: Seed = 0,
+    weyl0: Seed = 0,
     weyl1: Seed = 0,
 
     pub fn init(seed: Seed) Self {
-        return .{ .state = seed *% dev.oddPhiFraction(Seed) };
+        return .{ .state0 = seed *% dev.oddPhiFraction(Seed) };
     }
 
     pub fn next(self: *Self) Out {
-        defer self.weyl +%= dev.oddPhiFraction(Seed);
+        defer self.weyl0 +%= dev.oddPhiFraction(Seed);
         defer self.weyl1 -%= dev.oddPhiFraction(Seed);
 
-        self.state *%= self.state;
-        self.state +%= self.weyl;
-        const result = self.state;
-        self.state = bits.rol(self.state, @bitSizeOf(Seed) / 2);
+        self.state0 = self.state0 *% self.state0 +% self.weyl0;
+        const s0 = self.state0;
+        self.state0 = bits.rol(self.state0, @bitSizeOf(Seed) / 2);
 
-        self.state1 *%= self.state1;
-        self.state1 +%= self.weyl1;
+        const s1 = self.state1;
+        self.state1 = self.state1 *% self.state1 +% self.weyl1;
         self.state1 = bits.rol(self.state1, @bitSizeOf(Seed) / 2);
 
-        return result ^ self.state1;
+        return s0 +% s1;
     }
 
     pub const Seed = Out;
-    pub const Out = u64;
+    pub const Out = u8;
 
     // -------------------------------- Internal --------------------------------
 
