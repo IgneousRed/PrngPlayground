@@ -304,10 +304,10 @@ pub const SFC8 = struct {
 
     pub fn next(self: *Self) Out {
         const result = self.state[0] +% self.state[1] +% self.state[3];
-        self.state[0] = self.state[1] ^ (self.state[1] >> 1);
-        self.state[1] = self.state[2] +% (self.state[2] << 2);
-        self.state[2] = std.math.rotl(Out, self.state[2], 3) +% result;
-        self.state[3] +%= 1;
+        self.state[0] = self.state[1] ^ (self.state[1] >> 3);
+        self.state[1] = self.state[2] +% (self.state[2] << 1);
+        self.state[2] = std.math.rotl(Out, self.state[2], 2) +% result;
+        self.state[3] +%= dev.oddPhiFraction(Out);
         return result;
     }
 
@@ -343,26 +343,6 @@ pub const SFC = struct {
 
     pub const Seed = u256;
     pub const Out = u64;
-
-    // -------------------------------- Internal --------------------------------
-
-    const Self = @This();
-};
-
-pub const OldJavaRng = struct {
-    state: Seed,
-
-    pub fn init(seed: Seed) Self {
-        return .{ .state = seed *% dev.oddPhiFraction(Seed) };
-    }
-
-    pub fn next(self: *Self) Out {
-        self.state = (self.state *% dev.harmonicMCG(Seed) +% dev.oddPhiFraction(Seed));
-        return @truncate(Out, self.state >> 32);
-    }
-
-    pub const Seed = u64;
-    pub const Out = u32;
 
     // -------------------------------- Internal --------------------------------
 

@@ -29,10 +29,8 @@ fn k1EDTest(comptime RNG: type, seed: RNG.Seed) void {
 }
 fn perm16(value: u16) u16 {
     var v = [2]u8{ bits.high(u8, value), bits.low(u8, value) };
-    var q = v[0] +% v[1];
-    var w = v[1] +% v[0];
-    v[0] = q;
-    v[1] = w;
+    v[0] -%= v[1];
+    v[1] -%= v[0];
     var result = bits.concat(u16, v[0], v[1]);
     return result;
 }
@@ -43,6 +41,13 @@ fn perm32(value: u32) u32 {
 
     v[1] -%= v[0];
     v[3] -%= v[2];
+
+    v[0] -%= v[2];
+    v[1] -%= v[3];
+
+    v[2] -%= v[0];
+    v[3] -%= v[1];
+
     var result = bits.concat(u32, bits.concat(u16, v[0], v[1]), bits.concat(u16, v[2], v[3]));
     return result;
 }
@@ -51,24 +56,12 @@ fn mult(a: u8, b: u8) struct { high: u8, low: u8 } {
     return .{ .high = bits.high(u8, temp), .low = bits.low(u8, temp) };
 }
 pub fn main() !void {
-    // std.debug.print("{x}", .{dev.oddPhiFraction(u128)});
-    // var i: usize = 0;
-    // var s: u16 = 0;
-    // while (true) {
-    //     s *%= 4 * 4 + 1;
-    //     s +%= 0b0001;
-    //     if (s == 0) break;
-    //     i += 1;
-    // }
-    // std.debug.print("{}", .{i});
-
+    // try permutationCheck(u16, perm16);
     // try permutationCheck(u32, perm32);
     // const Rng = rng.SFC;
     // avelancheTest.avelancheSummary(Rng, avelancheTest.avelancheTest(Rng, 12, 1 << 16));
 
     // try tRNG.configRNG(rng.Red, 20, 0, true, true, alloc);
-    // try testing(rng.SFC8, 0);
-    // try testing(rng.MSWS, 0);
     // try testing(rng.Test, 0);
     // time();
 

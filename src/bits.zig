@@ -25,41 +25,21 @@ pub fn ShiftCast(comptime T: type, value: anytype) ShiftType(T) {
 }
 
 pub fn shl(value: anytype, amount: anytype) @TypeOf(value) {
-    return value << @intCast(ShiftType(@TypeOf(value)), amount);
-}
-
-pub fn shr(value: anytype, amount: anytype) @TypeOf(value) {
-    return value >> @intCast(ShiftType(@TypeOf(value)), amount);
-}
-
-/// Bit rotate left, better asm support than `ror`.
-pub fn rol(value: anytype, amount: anytype) @TypeOf(value) {
-    const a = @intCast(ShiftType(@TypeOf(value)), amount);
-    return value << a | value >> -%a;
-}
-
-/// Bit rotate right, `rol` has better asm support.
-pub fn ror(value: anytype, amount: anytype) @TypeOf(value) {
-    const a = @intCast(ShiftType(@TypeOf(value)), amount);
-    return value >> a | value >> -%a;
-}
-
-pub fn shlOvf(value: anytype, amount: anytype) @TypeOf(value) {
     return value << @truncate(ShiftType(@TypeOf(value)), amount);
 }
 
-pub fn shrOvf(value: anytype, amount: anytype) @TypeOf(value) {
+pub fn shr(value: anytype, amount: anytype) @TypeOf(value) {
     return value >> @truncate(ShiftType(@TypeOf(value)), amount);
 }
 
 /// Bit rotate left, better asm support than `ror`.
-pub fn rolOvf(value: anytype, amount: anytype) @TypeOf(value) {
+pub fn rol(value: anytype, amount: anytype) @TypeOf(value) {
     const a = @truncate(ShiftType(@TypeOf(value)), amount);
     return value << a | value >> -%a;
 }
 
 /// Bit rotate right, `rol` has better asm support.
-pub fn rorOvf(value: anytype, amount: anytype) @TypeOf(value) {
+pub fn ror(value: anytype, amount: anytype) @TypeOf(value) {
     const a = @truncate(ShiftType(@TypeOf(value)), amount);
     return value >> a | value >> -%a;
 }
