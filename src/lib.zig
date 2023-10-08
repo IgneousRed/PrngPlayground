@@ -62,12 +62,12 @@ pub fn partsToFloat(
     fraction: FloatFractionType(T),
 ) T {
     const signExponent = @as(UnsignedSized(T), sign) << floatExponentBits(T) | exponent;
-    return @bitCast(T, signExponent << floatFractionBits(T) | fraction);
+    return @bitCast(signExponent << floatFractionBits(T) | fraction);
 }
 
 pub fn partsToF16(sign: u1, exponent: u5, fraction: u10) f16 {
     const signExponent = @as(u16, sign) << floatExponentBits(f16) | exponent;
-    return @bitCast(f16, signExponent << floatFractionBits(f16) | fraction);
+    return @bitCast(signExponent << floatFractionBits(f16) | fraction);
 }
 
 pub fn timeMicro() i128 {
@@ -81,7 +81,7 @@ pub fn phiFraction(comptime T: type) T {
     // φ = (sqrt(5) - 1)/2 = (sqrt(2^(2^n) * 5) - 2^n)/2^n
     const bits = @bitSizeOf(T);
     const one = @as(std.meta.Int(.unsigned, bits * 2 + 3), 1) << bits;
-    return @intCast(T, std.math.sqrt((one << bits) * 5) - one >> 1);
+    return @as(T, @intCast(std.math.sqrt((one << bits) * 5) - one >> 1));
 }
 
 pub const MatrixError = error{ MatrixIncompatibleSizes, MatrixCopyOOB };
@@ -260,7 +260,7 @@ pub fn factorial(value: usize) usize {
 /// Returns `n`th permutation of `result.len` indexes
 pub fn indexPermutation(result: []usize, n: usize) void {
     var perm = n;
-    for (result) |*res, r| {
+    for (result, 0..) |*res, r| {
         const rOpposite = result.len - r;
         var pick = perm % rOpposite;
         var i: usize = 0;
@@ -274,7 +274,7 @@ pub fn indexPermutation(result: []usize, n: usize) void {
 }
 
 pub fn nano64() u64 {
-    return @truncate(u64, @intCast(u128, std.time.nanoTimestamp()));
+    return @as(u64, @truncate(@as(u128, @intCast(std.time.nanoTimestamp()))));
 }
 
 pub fn mulInv(value: anytype) @TypeOf(value) {

@@ -3,27 +3,26 @@ const dev = @import("rng_dev.zig");
 const bits = @import("bits.zig");
 const Allocator = std.mem.Allocator;
 
-const Port = union { state: u8, inter: u8 };
+const Port = union { state: u8, temp: u8 };
 
 const Shift = union {
-    value: struct {
-        port: Port,
-        high: bool,
-        half: bool,
-    },
+    port: Port,
     popCount: Port,
     k: u8,
 };
 
 const Rotate = union {
-    variable: struct { source: union {
-        value: struct {
-            port: Port,
-            high: bool,
-            half: bool,
+    variable: struct {
+        source: union {
+            value: struct {
+                port: Port,
+                high: bool,
+                half: bool,
+            },
+            popCount: Port,
         },
-        popCount: Port,
-    }, right: bool },
+        right: bool,
+    },
     k: u8,
 };
 
@@ -52,7 +51,7 @@ const RngAlgo = struct {
     operations: []Operation,
     state: []Port,
     out: Port,
-    counterType: CounterType,
+    // counterType: CounterType,
     alloc: Allocator,
 
     pub fn init( // TODO: alloc?
@@ -129,7 +128,7 @@ fn RngState(comptime Word: type) type {
         }
 
         pub fn next(self: *Self) Word {
-            for (self.intermediate) |d, i| d.* = switch (self.operations[i]) {
+            for (self.intermediate, 0..) |d, i| d.* = switch (self.operations[i]) {
                 .not => |op| ~self.port(op),
                 .xor => |op| self.port(op.a) ^ self.port(op.b),
                 .add => |op| self.port(op.a) +% self.port(op.b),
@@ -179,7 +178,7 @@ fn RngState(comptime Word: type) type {
                 },
             }
 
-            for (self.algo.state) |s, i| self.stateNew[i + 1] = self.port(s);
+            for (self.algo.state, 0..) |s, i| self.stateNew[i + 1] = self.port(s);
 
             std.mem.swap([*]Word, &self.state.ptr, &self.stateNew.ptr);
             return self.port(self.out);

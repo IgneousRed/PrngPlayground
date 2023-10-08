@@ -46,11 +46,6 @@ pub fn spectralTest(comptime T: type, multiplier: T, dimensions: u5) []f64 {
     _ = dimensions;
 }
 
-fn permutation64(value: u64) u64 {
-    const mixed = (value >> @intCast(u6, (value >> 59) + 5) ^ value) *% 0xaef17502108ef2d9;
-    return mixed >> 43 ^ mixed;
-}
-
 pub fn harmonicMCG(comptime T: type) T {
     return switch (T) {
         u32 => 0x93d765dd,
@@ -68,7 +63,3 @@ pub fn harmonicLCG(comptime T: type) T {
         else => @compileError("Size not supported"),
     };
 }
-
-pub const golden32 = 0x9e3779bd;
-pub const golden64 = 0x9e3779b97f4a7c15;
-pub const golden128 = 0x9e3779b97f4a7c15f39cc0605cedc835;

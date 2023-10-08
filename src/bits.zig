@@ -1,5 +1,9 @@
 const std = @import("std");
 
+pub fn usizeToF64(val: usize) f64 {
+    return @floatFromInt(val);
+}
+
 pub fn typeSize(comptime value: anytype) comptime_int {
     return @bitSizeOf(@TypeOf(value));
 }
@@ -21,37 +25,42 @@ pub fn shiftSize(comptime bits: comptime_int) comptime_int {
 
 /// Casts value into right type for shifting T.
 pub fn ShiftCast(comptime T: type, value: anytype) ShiftType(T) {
-    return @intCast(ShiftType(T), value);
+    return @intCast(value);
 }
 
 pub fn shl(value: anytype, amount: anytype) @TypeOf(value) {
-    return value << @truncate(ShiftType(@TypeOf(value)), amount);
+    var temp: ShiftType(@TypeOf(value)) = @truncate(amount);
+    return value << temp;
 }
 
 pub fn shr(value: anytype, amount: anytype) @TypeOf(value) {
-    return value >> @truncate(ShiftType(@TypeOf(value)), amount);
+    return value >> @as(ShiftType(@TypeOf(value)), @truncate(amount));
 }
 
-/// Bit rotate left, better asm support than `ror`.
+/// Bit rotate left, `ror` has better asm support.
 pub fn rol(value: anytype, amount: anytype) @TypeOf(value) {
-    const a = @truncate(ShiftType(@TypeOf(value)), amount);
+    const a = @as(ShiftType(@TypeOf(value)), @truncate(amount));
     return value << a | value >> -%a;
 }
 
-/// Bit rotate right, `rol` has better asm support.
+/// Bit rotate right, better asm support than `rol`.
 pub fn ror(value: anytype, amount: anytype) @TypeOf(value) {
-    const a = @truncate(ShiftType(@TypeOf(value)), amount);
-    return value >> a | value >> -%a;
+    const a = @as(ShiftType(@TypeOf(value)), @truncate(amount));
+    return value >> a | value << -%a;
 }
 
 /// Returns the low bits of an int.
 pub fn low(comptime T: type, int: anytype) T {
-    return @truncate(T, int);
+    return @as(T, @truncate(int));
 }
 
 /// Returns the hign bits of an int.
 pub fn high(comptime T: type, int: anytype) T {
-    return @intCast(T, int >> @bitSizeOf(@TypeOf(int)) - @bitSizeOf(T));
+    return @as(T, @intCast(int >> @bitSizeOf(@TypeOf(int)) - @bitSizeOf(T)));
+}
+
+pub fn multiplyFull(a: anytype, b: @TypeOf(a)) U(@bitSizeOf(@TypeOf(a)) * 2) {
+    return @as(U(@bitSizeOf(@TypeOf(a)) * 2), a) * b;
 }
 
 pub fn Half(comptime T: type) type {
@@ -70,8 +79,9 @@ pub fn splitHalf(comptime T: type, int: T) SplitHalf(T) {
     return .{ .high = high(I, int), .low = low(I, int) };
 }
 
-pub fn concat(comptime T: type, highInt: anytype, lowInt: anytype) T {
-    return @intCast(T, highInt) << @bitSizeOf(@TypeOf(lowInt)) | lowInt;
+pub fn concat(highInt: anytype, lowInt: anytype) U(@bitSizeOf(@TypeOf(highInt)) + @bitSizeOf(@TypeOf(lowInt))) {
+    const lowBits = @bitSizeOf(@TypeOf(lowInt));
+    return @as(U(@bitSizeOf(@TypeOf(highInt)) + lowBits), @intCast(highInt)) << lowBits | lowInt;
 }
 
 // pub fn Concat(a: anytype, b: anytype) type {
