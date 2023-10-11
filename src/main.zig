@@ -13,11 +13,10 @@ const alloc = gpa.allocator();
 
 fn perm32(value: u32) u32 {
     var v = [4]u8{ bits.low(u8, value), bits.low(u8, value >> 8), bits.low(u8, value >> 16), bits.low(u8, value >> 24) };
-    const mul = bits.multiplyFull(v[0], v[3]);
     const a = v[0];
-    v[0] = v[1] +% mul.low;
+    v[0] = v[1] +% v[2];
     v[1] = v[2] +% v[3];
-    v[2] = a +% mul.high;
+    v[2] = a +% v[0];
     return bits.concat(bits.concat(v[3], v[2]), bits.concat(v[1], v[0]));
 }
 
@@ -32,22 +31,21 @@ fn perm24(value: u24) u24 {
 }
 
 const Test = struct {
-    state: [4]Out,
-    pub fn init(seed: Seed) Self {
+    state: [4]Word,
+    pub fn init(seed: Word) Self {
         var self: Self = .{ .state = .{ seed, ~seed, -%seed, ~-%seed } };
-        for (0..10) |_| _ = self.next();
+        for (0..20) |_| _ = self.next();
         return self;
     }
-    pub fn next(self: *Self) Out {
+    pub fn next(self: *Self) Word {
         var a = self.state[1] -% self.state[0];
         self.state[0] = self.state[1] +% self.state[2];
         self.state[1] = a -% self.state[2];
-        self.state[2] = self.state[3] -% bits.ror(a, 15);
-        self.state[3] +%= dev.oddPhiFraction(Out);
+        self.state[2] = self.state[3] -% bits.ror(a, 9);
+        self.state[3] +%= dev.oddPhiFraction(Word);
         return self.state[0];
     }
-    pub const Out = u16;
-    pub const Seed = Out;
+    pub const Word = u64;
 
     // -------------------------------- Internal --------------------------------
     const Self = @This();
@@ -58,9 +56,11 @@ pub fn main() !void {
     // try diagnosePermutation(rng.WYR64);
     // uniformCheck(rng.WYR64);
 
-    // timingRng(rng.MWC3(u64, true));
-    // try testing(rng.MWC8, 0, "1", "0");
-    try testing(rng.WYR(u32), 0, "2", "1");
+    // timingRng(rng.WYR(u16));
+    // timingRng(rng.WYR(u32));
+    // timingRng(rng.WYR(u64));
+    // try testing(Test, 0, "1", "0");
+    try testing(Test, 0, "2", "1");
     // try permutationCheck(u24, perm24);
     // try permutationCheck(u32, perm32);
 
@@ -78,11 +78,11 @@ pub fn main() !void {
 // JSF(64)      0.9002685546875
 // Xoshiro256   0.9918212890625
 // Xoroshiro128 1.15966796875
-// GJR(64)      1.5411376953125 // Test
+// GJR(64)      1.5411376953125
 fn timingRng(comptime Prng: type) void {
     var time = ~@as(u64, 0);
     var sum: usize = 0;
-    var buf: [1 << 16]Prng.Out = .{0} ** (1 << 16);
+    var buf: [1 << 16]Prng.Word = .{0} ** (1 << 16);
     var prng = Prng.init(0);
     for (0..1 << 16) |_| {
         var temp = std.time.nanoTimestamp();
@@ -143,7 +143,7 @@ fn permutationCheck(comptime T: type, comptime f: fn (T) T) !void {
     }
     std.debug.print("The function is a permutation!\n", .{});
 }
-fn testing(comptime Prng: type, seed: Prng.Seed, fold: []const u8, expanded: []const u8) !void {
+fn testing(comptime Prng: type, seed: Prng.Word, fold: []const u8, expanded: []const u8) !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
@@ -164,7 +164,7 @@ fn testing(comptime Prng: type, seed: Prng.Seed, fold: []const u8, expanded: []c
     const stdIn = child.stdin.?.writer();
 
     var random = Prng.init(seed);
-    var buf: [1 << 16]Prng.Out = undefined;
+    var buf: [1 << 16]Prng.Word = undefined;
     while (true) {
         for (&buf) |*b| {
             b.* = random.next();
