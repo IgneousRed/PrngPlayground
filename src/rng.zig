@@ -108,27 +108,27 @@ pub fn GJR(comptime T: type) type {
     };
 }
 
-// PractRand Expanded, Extra Folding
-//      Raw  Permuted
-// 8:   16   27
-// 16:  30   >40
-// 32:  >40  >40
-// 64:  >40  >40
+// PractRand-pre0.95 Expanded, Extra Folding
+// Out  None                             Simple                      Complex
+// 8    16 [Low8/32]FPF-14+6/4:(2,14-8)  27 [Low8/32]FPF-14+6/4:all  29 FPF-14+6/4:(2,14-0)
+// 16   30 [Low1/8]FPF-14+6/4:all        >40                         >40
+// 32   >40                              >40                         >40
+// 64   >40                              >40                         >40
 //
 // Apple M2 Pro: NanoS/OP
-//      Raw              Permuted
-// 8:   1.15966796875    0.9765625
-// 16:  0.8697509765625  0.9765625
-// 32:  1.4190673828125  1.4190673828125
-// 64:  0.5645751953125  0.5645751953125 TODO: Test again
-pub fn MWC3(comptime T: type, comptime permuted: bool) type {
+// Out  Raw              Permuted
+// 8    1.15966796875    0.9765625
+// 16   0.8697509765625  0.9765625
+// 32   1.4190673828125  1.4190673828125
+// 64   0.5645751953125  0.5645751953125 TODO: Test again
+pub fn MWC3(comptime T: type, comptime outputFn: MWCOutputFn) type {
     const k = switch (T) {
         else => @compileError("MWC3 supports: u8, u16, u32, u64"),
         u8, u16, u32, u64 => .{
             .{ 0x4e, 0x38, 0xe4 }, // Find better constants
             .{ 0x814f, 0xf767, 0x9969 }, // Find better constants
-            .{ 0xd15e_a5e5, 0xcafef00d, 0xcfdb_c53d }, // Better mul exists?
-            .{ 0x1405_7b7e_f767_814f, 0xcafe_f00d_d15e_a5e5, 0xfeb3_4465_7c0a_f413 },
+            .{ 0xd15ea5e5, 0xcafef00d, 0xcfdbc53d }, // Better mul exists?
+            .{ 0x14057b7ef767814f, 0xcafef00dd15ea5e5, 0xfeb344657c0af413 },
         }[std.math.log2(@sizeOf(T))],
     };
 
@@ -141,10 +141,11 @@ pub fn MWC3(comptime T: type, comptime permuted: bool) type {
         }
         pub fn next(self: *Self) Word {
             const mul = bits.multiplyFull(self.state[1], k[2]) +% self.state[0];
-            const result = if (permuted)
-                self.state[0] +% self.state[3]
-            else
-                bits.low(Word, mul);
+            const result = switch (outputFn) {
+                .none => bits.low(Word, mul),
+                .simple => bits.low(Word, mul) +% bits.high(Word, mul),
+                .complex => (self.state[1] ^ self.state[2]) +% (self.state[3] ^ bits.high(Word, mul)),
+            };
             self.state[0] = bits.high(Word, mul);
             self.state[1] = self.state[2];
             self.state[2] = self.state[3];
@@ -157,37 +158,39 @@ pub fn MWC3(comptime T: type, comptime permuted: bool) type {
         const Self = @This();
     };
 }
+pub const MWCOutputFn = enum { none, simple, complex };
 
-// PractRand Expanded, Extra Folding
-// 16:  12
-// 32:  28
-// 64:  >40
+// PractRand-pre0.95 Expanded, Extra Folding
+// Out  Xor                          Sub
+// 16   13 Gap-16:A                  13 Gap-16:A
+// 32   29 Gap-16:A                  28 [Low1/8]FPF-14+6/16:all
+// 64   45 [Low1/8]mod3n(0):(0,9-6)  >45
 //
 // Apple M2 Pro: NanoS/OP
-//      Xor             Sub
-// 16:  0.1068115234375 0.0762939453125
-// 32:  0.2288818359375 0.1678466796875
-// 64:  0.3814697265625 0.3662109375
+// Out  Xor             Sub
+// 16   0.1068115234375 0.0762939453125
+// 32   0.2288818359375 0.1678466796875
+// 64   0.3814697265625 0.3662109375
 pub fn WYR(comptime T: type) type {
     const k = switch (T) {
-        else => @compileError("MWC3 supports: u16, u32, u64"),
+        else => @compileError("WYR supports: u16, u32, u64"),
         u16, u32, u64 => .{
             .{ 0xca59, 0x53c5 },
-            .{ 0x53c5_ca59, 0x7474_3c1b },
-            .{ 0x8bb8_4b93_962e_acc9, 0x2d35_8dcc_aa6c_78a5 },
+            .{ 0x53c5ca59, 0x74743c1b },
+            .{ 0x8bb84b93962eacc9, 0x2d358dccaa6c78a5 },
         }[std.math.log2(@sizeOf(T)) - 1],
     };
 
     return struct {
         state: [1]Word,
         pub fn init(seed: Word) Self {
-            return .{ .state = .{~seed *% dev.oddPhiFraction(Word)} };
+            return .{ .state = .{~seed *% k[1]} };
         }
         pub fn next(self: *Self) Word {
             const mul = bits.multiplyFull(self.state[0], self.state[0] ^ k[0]);
             self.state[0] +%= k[1];
-            return bits.low(Word, mul) ^ bits.high(Word, mul);
-            // return bits.low(Word, mul) -% bits.high(Word, mul);
+            // return bits.low(Word, mul) ^ bits.high(Word, mul);
+            return bits.low(Word, mul) -% bits.high(Word, mul);
         }
         pub const Word = T;
 

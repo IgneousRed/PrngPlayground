@@ -1,0 +1,11 @@
+The goal is to make the fastest 4Word Counting Chaotic PRNG.
+Constraints:
+    Only using Xor, Add, Sub, Shift, Rotate.
+    16bit word passes:
+        2^40 bytes PractRand Default
+        TestU01 Crush & BigCrush
+        gjrand mcp --huge
+Methodology:
+    0. Find all combinations of Adds and state assignments that satisfy:
+        0. The step is a permutiation
+        1. Every state influences every other state (Counter should only influence itself)

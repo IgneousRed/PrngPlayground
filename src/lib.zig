@@ -70,8 +70,8 @@ pub fn partsToF16(sign: u1, exponent: u5, fraction: u10) f16 {
     return @bitCast(signExponent << floatFractionBits(f16) | fraction);
 }
 
-pub fn timeMicro() i128 {
-    return @divTrunc(std.time.nanoTimestamp(), 1000);
+pub fn timeMicro() u64 {
+    return @as(u64, @truncate(@as(u128, @intCast(@divTrunc(std.time.nanoTimestamp(), 1000)))));
 }
 
 /// Returns unsigned int T with phi fraction(.618...).

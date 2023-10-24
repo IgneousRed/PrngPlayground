@@ -1,5 +1,6 @@
 const std = @import("std");
-// const lib = @import("lib.zig");
+const List = std.ArrayList;
+const lib = @import("lib.zig");
 // const prng = @import("prng.zig");
 const rng = @import("rng.zig");
 const dev = @import("rngDev.zig");
@@ -9,27 +10,30 @@ const qt = @import("quickTest.zig");
 const algo = @import("algo.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const alloc = gpa.allocator();
+pub const alloc = gpa.allocator();
 
 fn perm32(value: u32) u32 {
     var v = [4]u8{ bits.low(u8, value), bits.low(u8, value >> 8), bits.low(u8, value >> 16), bits.low(u8, value >> 24) };
-    const a = v[0];
-    v[0] = v[1] +% v[2];
-    v[1] = v[2] +% v[3];
-    v[2] = a +% v[0];
+    const mul = bits.multiplyFull(v[1], v[0]);
+    const a = v[0] +% 53;
+    const b = v[1] +% bits.high(u8, mul);
+    const c = v[2] +% bits.low(u8, mul);
+    v[0] = b;
+    v[1] = c;
+    v[2] = a;
     return bits.concat(bits.concat(v[3], v[2]), bits.concat(v[1], v[0]));
 }
-
 fn perm24(value: u24) u24 {
-    var v = [3]u8{ bits.low(u8, value), bits.low(u8, value >> 8), bits.low(u8, value >> 16) };
-    const mul = bits.multiplyFull(v[0], 0);
-    const a = v[0];
-    v[0] = v[1] +% mul.low;
-    v[1] = v[2] +% 0;
-    v[2] = a +% mul.high;
+    var v = [4]u8{ bits.low(u8, value), bits.low(u8, value >> 8), bits.low(u8, value >> 16), 0 };
+    const a = bits.ror(v[0], 5);
+    const b = bits.ror(v[1], 2);
+    const c = v[3] +% v[2]; // 0
+    v[0] = v[3] +% a; // 1
+    v[1] = a +% b; //
+    v[2] +%= 1;
+    v[3] = c +% v[0]; // 0
     return bits.concat(v[2], bits.concat(v[1], v[0]));
 }
-
 const Test = struct {
     state: [4]Word,
     pub fn init(seed: Word) Self {
@@ -38,39 +42,20 @@ const Test = struct {
         return self;
     }
     pub fn next(self: *Self) Word {
-        var a = self.state[1] -% self.state[0];
-        self.state[0] = self.state[1] +% self.state[2];
-        self.state[1] = a -% self.state[2];
-        self.state[2] = self.state[3] -% bits.ror(a, 9);
-        self.state[3] +%= dev.oddPhiFraction(Word);
         return self.state[0];
     }
-    pub const Word = u64;
+    pub const Word = u8;
 
     // -------------------------------- Internal --------------------------------
     const Self = @This();
 };
-
 pub fn main() !void {
-    // try diagnose(rng.WYR64);
-    // try diagnosePermutation(rng.WYR64);
-    // uniformCheck(rng.WYR64);
-
-    // timingRng(rng.WYR(u16));
-    // timingRng(rng.WYR(u32));
-    // timingRng(rng.WYR(u64));
-    // try testing(Test, 0, "1", "0");
-    try testing(Test, 0, "2", "1");
     // try permutationCheck(u24, perm24);
     // try permutationCheck(u32, perm32);
-
-    // const data = try qt.quickTestRaw(rng.MWC64, 8, 1 << 16, alloc);
-    // for (data, 1..) |d, i| {
-    //     std.debug.print("{d:2} {d}\n", .{ i, d });
-    // }
-    // std.debug.print("{d}\n", .{try qt.quickTest(rng.MWC64, 8, 1 << 16, alloc)});
+    // timingRng(Test);
+    // try testing(Test, 0, false);
+    // try testing(Test, 0, true);
 }
-
 // Name         Speed(ns/op)
 // WYR(64)      0.3814697265625
 // MWC3(64)     0.5645751953125(0.579833984375)
@@ -143,15 +128,15 @@ fn permutationCheck(comptime T: type, comptime f: fn (T) T) !void {
     }
     std.debug.print("The function is a permutation!\n", .{});
 }
-fn testing(comptime Prng: type, seed: Prng.Word, fold: []const u8, expanded: []const u8) !void {
+fn testing(comptime Prng: type, seed: Prng.Word, extreme: bool) !void {
     var child = std.ChildProcess.init(&[_][]const u8{
         "/Users/gio/PractRand/RNG_test",
         "stdin",
         // "-a",
         "-tf",
-        fold,
+        if (extreme) "2" else "1",
         "-te",
-        expanded,
+        if (extreme) "1" else "0",
         "-tlmin",
         "10",
         "-tlmax",
@@ -164,7 +149,7 @@ fn testing(comptime Prng: type, seed: Prng.Word, fold: []const u8, expanded: []c
     const stdIn = child.stdin.?.writer();
 
     var random = Prng.init(seed);
-    var buf: [1 << 16]Prng.Word = undefined;
+    var buf: [(1 << 25) / @bitSizeOf(Prng.Word)]Prng.Word = undefined;
     while (true) {
         for (&buf) |*b| {
             b.* = random.next();

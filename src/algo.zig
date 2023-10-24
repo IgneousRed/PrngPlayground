@@ -3,21 +3,17 @@ const Allocator = std.mem.Allocator;
 
 const Port = u8;
 const Const = u8;
-const Shift = union { port: Port, pop: Port, clz: Port, ctz: Port, k: Const };
-const Rotate = union { port: Port, pop: Port, clz: Port, ctz: Port };
+const Shift = union { port: Port, k: Const };
 const Operation = struct {
     port: Port,
     kind: union {
-        reverseBytes: void, // ?
-        reverseBits: void, // ?
         xor: Port, // !
         add: Port, // !
         sub: Port,
         shiftLeft: Shift,
         shiftRight: Shift,
-        shiftArithmetic: Shift,
-        rotateLeft: Rotate,
-        rotateRight: Rotate,
+        rotateLeft: Port,
+        rotateRight: Port,
         rotateConst: Const,
     },
 };
